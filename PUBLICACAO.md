@@ -1,16 +1,23 @@
 # Checklist de publicação
 
-O estado atual foi sanitizado para portfólio, mas a publicação deve ocorrer somente após uma revisão final.
+A árvore atual foi sanitizada e o branch `main` foi recriado a partir de uma **baseline limpa, sem o histórico legado anterior**.
+
+## Concluído
 
 - [x] remover lista pessoal do estado atual;
 - [x] remover componentes legados em CustomTkinter;
 - [x] remover bypass de validação TLS;
 - [x] adicionar testes e workflow de CI;
 - [x] adicionar licença e política de segurança;
-- [ ] confirmar CI verde;
+- [x] recriar o histórico alcançável do `main` a partir da árvore sanitizada;
+- [x] adicionar verificação automática de segredos óbvios no CI.
+
+## Antes de tornar público
+
+- [ ] confirmar CI verde na baseline atual;
 - [ ] executar a GUI em Linux desktop real;
 - [ ] substituir mockup por screenshot real quando o visual estiver validado;
-- [ ] revisar o histórico por arquivos/listas pessoais anteriores;
-- [ ] executar scanner de segredos no histórico final.
+- [ ] executar scanner dedicado de segredos no clone final, além da checagem básica do projeto;
+- [ ] revisar visualmente todos os arquivos que serão publicados.
 
-Se a lista pessoal removida do repositório não deve permanecer recuperável no histórico, publique a árvore atual em um repositório novo/limpo ou reescreva o histórico antes de mudar a visibilidade.
+> A reescrita do branch remove o histórico antigo da navegação normal e da ancestralidade do `main`. Objetos Git antigos podem permanecer temporariamente retidos pela infraestrutura do provedor. Se algum segredo real já tivesse sido publicado, a ação correta continuaria sendo revogá-lo/rotacioná-lo.
