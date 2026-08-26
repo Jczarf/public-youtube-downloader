@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Ambientes
+.venv/
+venv/
+env/
+
+# IDE / SO
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Dados locais e configuracao
+.env
+.env.*
+*.log
+*.sqlite
+*.db
+*.part
+*.tmp
+
+# Midia baixada / listas pessoais
+downloads/
+*.mp3
+*.mp4
+*.webm
+*.mkv
+listas-pessoais/
