@@ -6,7 +6,14 @@ from pathlib import Path
 import pytest
 
 from src.config import Config, validate_download_path
-from src.downloader import DownloadSpec, Downloader, build_options, parse_time, validate_clip
+from src.downloader import (
+    DownloadSpec,
+    Downloader,
+    build_options,
+    friendly_download_error,
+    parse_time,
+    validate_clip,
+)
 from src.resolver import LinkType, classificar_link, detectar_contexto_playlist
 from src.text_import import read_txt_entries
 
@@ -89,7 +96,7 @@ def test_config_roundtrip_e_validacao(tmp_path: Path):
         encoding="utf-8",
     )
     recovered = Config(cfg.config_file)
-    assert recovered.get("max_downloads_simultaneos") == 3
+    assert recovered.get("max_downloads_simultaneos") == 2
     assert recovered.get("formato_padrao") == "mp3"
     assert recovered.get("qualidade_audio") == "192"
 
@@ -111,11 +118,13 @@ def test_destination_path_rejeita_vazio_relativo_e_raiz(tmp_path: Path):
     assert validate_download_path(tmp_path / "downloads").is_absolute()
 
 
-def test_options_nao_desabilitam_tls_e_priorizam_mp4(tmp_path: Path):
+def test_options_nao_desabilitam_tls_e_priorizam_mp4(monkeypatch, tmp_path: Path):
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
     mp3 = DownloadSpec("https://www.youtube.com/watch?v=abc123", "mp3", tmp_path)
     opts = build_options(mp3, lambda _: None)
     assert "nocheckcertificate" not in opts
     assert opts["ignoreerrors"] is False
+    assert "cookiesfrombrowser" not in opts
 
     mp4 = DownloadSpec(
         "https://www.youtube.com/watch?v=abc123",
@@ -128,8 +137,48 @@ def test_options_nao_desabilitam_tls_e_priorizam_mp4(tmp_path: Path):
     assert "bestaudio[ext=m4a]" in mp4_opts["format"]
 
 
+def test_options_usam_perfil_de_rede_conservador(monkeypatch, tmp_path: Path):
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
+    spec = DownloadSpec("https://www.youtube.com/watch?v=abc123", "mp3", tmp_path)
+    opts = build_options(spec, lambda _: None)
+
+    assert opts["retries"] == 10
+    assert opts["fragment_retries"] == 10
+    assert opts["extractor_retries"] == 3
+    assert opts["concurrent_fragment_downloads"] == 1
+    assert opts["sleep_interval_requests"] == 1.0
+    assert opts["socket_timeout"] == 30
+    assert opts["retry_sleep_functions"]["http"](1) == 1.0
+    assert opts["retry_sleep_functions"]["fragment"](6) == 20.0
+
+
+def test_cookies_do_navegador_sao_opt_in(monkeypatch, tmp_path: Path):
+    spec = DownloadSpec("https://www.youtube.com/watch?v=abc123", "mp3", tmp_path)
+
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "firefox")
+    opts = build_options(spec, lambda _: None)
+    assert opts["cookiesfrombrowser"] == ("firefox",)
+
+    monkeypatch.setenv("YT_DLP_COOKIES_FROM_BROWSER", "navegador-inexistente")
+    with pytest.raises(ValueError, match="YT_DLP_COOKIES_FROM_BROWSER"):
+        build_options(spec, lambda _: None)
+
+
+def test_erro_de_verificacao_do_youtube_vira_orientacao_segura():
+    error = RuntimeError(
+        "ERROR: Sign in to confirm you're not a bot. "
+        "Use --cookies-from-browser or --cookies for the authentication. "
+        "https://example.invalid/sensitive"
+    )
+    friendly = friendly_download_error(error)
+    assert "verificação da sessão" in friendly
+    assert "YT_DLP_COOKIES_FROM_BROWSER" in friendly
+    assert "https://example.invalid" not in friendly
+
+
 def test_downloader_faz_uma_unica_extracao_com_download(monkeypatch, tmp_path: Path):
     calls = []
+    monkeypatch.delenv("YT_DLP_COOKIES_FROM_BROWSER", raising=False)
 
     class FakeYDL:
         def __init__(self, options):
