@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QSize, Qt
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QFontDatabase, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -65,6 +65,12 @@ def human_datetime(value: str) -> str:
         return parsed.strftime("%d/%m/%Y • %H:%M")
     except ValueError:
         return value
+
+
+def plain_label(text: str = "") -> QLabel:
+    label = QLabel(text)
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    return label
 
 
 def make_nav_icon(kind: str, color: str, size: int = 18) -> QIcon:
@@ -148,7 +154,7 @@ class AppDialog(QDialog):
 
         top = QHBoxLayout()
         top.setSpacing(14)
-        mark = QLabel({"error": "!", "warning": "!", "question": "?"}.get(kind, "i"))
+        mark = plain_label({"error": "!", "warning": "!", "question": "?"}.get(kind, "i"))
         mark.setObjectName(f"dialogMark_{kind}")
         mark.setFixedSize(38, 38)
         mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -156,10 +162,10 @@ class AppDialog(QDialog):
 
         copy = QVBoxLayout()
         copy.setSpacing(6)
-        heading = QLabel(title)
+        heading = plain_label(title)
         heading.setObjectName("dialogTitle")
         copy.addWidget(heading)
-        body = QLabel(message)
+        body = plain_label(message)
         body.setObjectName("dialogText")
         body.setWordWrap(True)
         body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
