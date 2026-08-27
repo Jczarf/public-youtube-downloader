@@ -14,6 +14,7 @@ Aplicação desktop de uso pessoal para organizar downloads de mídia do YouTube
 - recorte por intervalo de tempo;
 - pesquisa por texto;
 - expansão de playlists com limite de itens;
+- detecção de vídeo aberto dentro de playlist, com escolha explícita entre **somente este vídeo** e **playlist completa**;
 - importação e pré-visualização de TXT antes de enfileirar;
 - monitor de clipboard **opt-in e somente da sessão**;
 - concorrência configurável por slider;
@@ -68,6 +69,17 @@ YouTube Downloader
     └── adicionar válidos à fila
 ```
 
+Quando um link de vídeo contém também um parâmetro `list=`, o aplicativo não presume que o usuário queira baixar dezenas de itens. Ele exibe um diálogo próprio com três opções:
+
+```text
+Vídeo dentro de playlist
+├── Somente este vídeo   ← opção segura/padrão
+├── Playlist completa
+└── Cancelar
+```
+
+A mesma decisão é preservada para links detectados pelo monitor de clipboard. Em importações TXT, um link explícito `/playlist?list=...` continua sendo a forma indicada para solicitar uma playlist inteira em lote.
+
 Não existe uma página separada de configurações: pasta, formato, qualidade, recorte e concorrência ficam no painel **Configuração rápida**.
 
 ## Direção visual
@@ -81,6 +93,7 @@ Textos vindos da rede, como títulos e mensagens de erro, são exibidos como **t
 - URLs externas ao YouTube são rejeitadas;
 - dentro do YouTube, somente rotas reconhecidas de vídeo, playlist e pesquisa são aceitas;
 - links HTTP válidos são canonicalizados para HTTPS;
+- links de vídeo com `list=` preservam contexto até a escolha do usuário, sem disparar playlist inteira silenciosamente;
 - rotas de redirecionamento, canais e páginas genéricas não são tratadas como vídeo;
 - TLS não é desativado;
 - FFmpeg ausente bloqueia downloads antes de consumir tempo/rede;
@@ -192,6 +205,8 @@ As versões são fixadas para que uma instalação reproduza a mesma baseline te
 ```
 
 O CI também executa `pip check`, compila o código e instancia a GUI com `QT_QPA_PLATFORM=offscreen`.
+
+Os testes cobrem também a detecção de `watch?v=...&list=...`, a escolha de vídeo/playlist e o cancelamento da decisão antes de iniciar a resolução.
 
 O workflow **Security Audit** verifica possíveis segredos na árvore/histórico Git alcançável e vulnerabilidades conhecidas das dependências Python via `pip-audit`.
 
