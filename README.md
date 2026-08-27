@@ -2,42 +2,56 @@
 
 Aplicação desktop de uso pessoal para organizar downloads de mídia do YouTube com **PySide6, yt-dlp e FFmpeg**.
 
-> Projeto em evolução. A edição pública foi refatorada para remover dados pessoais, endurecer defaults, melhorar concorrência e transformar a interface em uma aplicação desktop coerente com o mockup de portfólio. Use apenas com conteúdo que você tem direito de acessar e respeite os termos da plataforma.
+> Projeto pessoal em evolução. A edição pública foi refatorada para remover dados pessoais, reduzir superfície de ataque, melhorar concorrência e oferecer uma interface desktop consistente com o mockup de portfólio. Use apenas com conteúdo que você tem direito de acessar e respeite os termos da plataforma.
 
 ## O que está implementado
 
 - interface desktop em **PySide6 / Qt 6**;
 - navegação real e exclusiva entre **Fila**, **Histórico** e **Listas TXT**;
-- fila visual com estados separados de **aguardando**, **baixando**, **concluído**, **cancelado** e **erro**;
-- cancelamento imediato para jobs ainda aguardando uma thread e cancelamento cooperativo para jobs em execução;
+- fila visual com estados separados de aguardando, baixando, concluído, cancelado e erro;
 - downloads MP3 e MP4;
-- seletor de qualidade adequado ao formato;
+- seletor de qualidade por formato;
 - recorte por intervalo de tempo;
-- pesquisa por texto e resolução de links;
-- expansão de playlists;
-- importação e pré-visualização de listas TXT antes de enfileirar;
-- monitor de clipboard **opt-in** e persistido localmente;
+- pesquisa por texto;
+- expansão de playlists com limite de itens;
+- importação e pré-visualização de TXT antes de enfileirar;
+- monitor de clipboard **opt-in e somente da sessão**;
 - concorrência configurável por slider;
-- pools separados para resolução de links e downloads;
+- pools separados para resolução e downloads;
 - histórico local de concluídos, erros e cancelamentos;
-- preferências persistidas em diretório XDG;
-- retomada/retries e downloads fragmentados pelo `yt-dlp`;
+- preferências locais em diretório XDG;
+- retries, retomada e fragmentos concorrentes do `yt-dlp`;
 - estados vazios próprios, sem scrollbars decorativas;
-- diálogos de confirmação/erro próprios e coerentes com o tema escuro;
-- feedback não bloqueante por mensagens internas sem alterar a geometria da janela;
-- CI com testes offline e smoke test da GUI em modo offscreen;
-- auditoria de segurança separada para a edição pública.
+- diálogos próprios no tema escuro;
+- CI com testes offline e smoke test da GUI;
+- auditoria automática de segredos e vulnerabilidades conhecidas de dependências.
 
-## UX da aplicação
+## Execução e privacidade
 
-A interface segue uma estrutura enxuta:
+O aplicativo roda **localmente**. Ele não possui backend próprio, servidor web, API exposta ou porta de rede aberta.
+
+```text
+PySide6 GUI local
+      │
+      ├── configuração / histórico ──► JSON local XDG
+      │
+      ├── resolução ─────────────────► yt-dlp ─► YouTube
+      │
+      └── downloads ─────────────────► yt-dlp + FFmpeg
+```
+
+A aplicação precisa de internet para pesquisa/download e acessa o YouTube/CDNs por conexões de saída. FFmpeg executa localmente.
+
+O clipboard começa **desligado em toda nova execução**. Mesmo que tenha sido ativado anteriormente, ele não é reativado automaticamente no próximo start.
+
+## UX
 
 ```text
 YouTube Downloader
 │
 ├── Fila
-│   ├── adicionar link ou pesquisa
-│   ├── monitor de clipboard
+│   ├── link ou pesquisa
+│   ├── clipboard opt-in
 │   ├── fila de downloads
 │   └── configuração rápida
 │
@@ -45,7 +59,7 @@ YouTube Downloader
 │   ├── concluídos
 │   ├── erros e cancelamentos
 │   ├── abrir pasta
-│   └── limpar registros locais
+│   └── limpar registros
 │
 └── Listas TXT
     ├── escolher arquivo
@@ -54,97 +68,43 @@ YouTube Downloader
     └── adicionar válidos à fila
 ```
 
-Não existe uma página separada de configurações: pasta, formato, qualidade, recorte e concorrência já ficam disponíveis no painel **Configuração rápida**, evitando duplicação de controles e caminhos desnecessários.
-
-O recorte é deliberadamente tratado como configuração **do próximo item**, e não como preferência permanente, para reduzir o risco de cortar downloads futuros por engano.
+Não existe uma página separada de configurações: pasta, formato, qualidade, recorte e concorrência ficam no painel **Configuração rápida**.
 
 ## Direção visual
 
-A GUI reproduz o estilo definido para o portfólio:
+A GUI usa shell escuro com borda externa arredondada, sidebar grafite, cards de baixo contraste, vermelho como cor de ação, verde para sucesso e azul para informação. Estados vazios, diálogos e feedback foram desenhados no próprio tema para não depender da aparência nativa clara do sistema.
 
-- shell escuro com borda externa arredondada;
-- sidebar grafite;
-- cards com bordas suaves;
-- vermelho como cor de ação e seleção;
-- verde somente para estados positivos/ativos;
-- azul para informação de ambiente;
-- seletor de qualidade com chevron desenhado pela própria aplicação;
-- recorte agrupado em um único card;
-- seletor compacto de pasta;
-- slider visual de concorrência;
-- ícones principais desenhados de forma vetorial para reduzir diferenças entre fontes Linux;
-- caminhos do diretório pessoal abreviados como `~/...` na interface;
-- datas do histórico exibidas em formato legível;
-- diálogos escuros próprios, sem depender do `QMessageBox` nativo;
-- estados vazios fora de áreas roláveis, evitando barras de rolagem fantasmas.
+Textos vindos da rede, como títulos e mensagens de erro, são exibidos como **texto simples**, evitando interpretação de HTML na interface.
 
-A intenção é manter uma aparência de produto desktop sem esconder o estado real do projeto: somente controles com comportamento implementado permanecem expostos.
+## Hardening aplicado
 
-## Arquitetura
-
-```text
-PySide6 GUI
-   │
-   ├── entrada / clipboard / TXT
-   │          │
-   │          ▼
-   │    pool de resolução
-   │          │
-   │      resolver.py
-   │          │
-   └──────► fila de jobs ──► pool de downloads
-                               │
-                               ▼
-                         downloader.py
-                               │
-                        yt-dlp + FFmpeg
-
-Histórico / preferências
-          │
-          ▼
-      JSON local XDG
-```
-
-Resolução de pesquisas e playlists não ocupa as vagas configuradas para downloads. Isso evita que tarefas de metadados reduzam artificialmente a concorrência das transferências.
-
-A camada visual comum fica em `src/ui.py`, que centraliza paleta, fonte de fallback, ícones vetoriais, combo estilizado e diálogos temáticos. Isso evita repetir correções de aparência em cada tela.
-
-## Melhorias aplicadas na edição pública
-
-- substituição da GUI legada em CustomTkinter por PySide6;
-- remoção de lista pessoal que havia sido versionada;
-- remoção de navegação decorativa/placeholder;
-- eliminação da página redundante de configurações;
-- URLs externas ao YouTube não são aceitas silenciosamente;
-- validação TLS não é desativada;
-- `ignoreerrors` não mascara falhas;
-- retries e fragment retries explícitos;
-- concorrência de fragmentos quando suportada pelo `yt-dlp`;
-- configuração salva de forma atômica;
-- histórico salvo de forma atômica;
-- cancelamento de jobs pendentes e em execução;
-- contadores da fila baseados em estados reais, e não apenas na quantidade de workers;
-- bloqueio do botão de adicionar durante resolução para impedir envios duplicados acidentais;
-- pools separados para metadados e downloads;
-- limite de concorrência entre 1 e 8 jobs;
-- validação de recortes antes de iniciar o download;
-- nomes de saída incluem o ID do vídeo para reduzir colisões;
-- instalação e execução não dependem da ativação manual do virtualenv;
-- monitor de clipboard desligado por padrão;
-- feedback visual consistente para foco, hover, disabled e seleção;
-- testes de classificação, recorte, persistência, navegação, estados vazios, scrollbars e controles principais.
+- URLs externas ao YouTube são rejeitadas;
+- dentro do YouTube, somente rotas reconhecidas de vídeo, playlist e pesquisa são aceitas;
+- links HTTP válidos são canonicalizados para HTTPS;
+- rotas de redirecionamento, canais e páginas genéricas não são tratadas como vídeo;
+- TLS não é desativado;
+- FFmpeg ausente bloqueia downloads antes de consumir tempo/rede;
+- configuração inválida é normalizada para defaults seguros;
+- pasta de destino precisa ser absoluta (ou `~`) e a raiz `/` é recusada;
+- config/histórico usam escrita atômica e permissões privadas em sistemas POSIX;
+- histórico não salva URL do vídeo e redige URLs de mensagens de erro;
+- TXT: máximo de **2 MB**, **500 entradas** e **4096 caracteres por linha**;
+- playlists são iteradas até o limite em vez de materializar toda a coleção;
+- o downloader evita uma extração duplicada de metadados antes da transferência;
+- MP4 prioriza vídeo MP4 + áudio M4A quando disponíveis;
+- scripts `install.sh` e `run.sh` funcionam mesmo quando chamados a partir de outro diretório;
+- dependências de runtime são fixadas na baseline validada;
+- Security Audit executa scanner de segredos e `pip-audit`.
 
 ## Instalação
 
 ### Requisitos
 
-- **Python 3.12 recomendado e usado como baseline principal do CI**;
-- Python 3.11+ pode funcionar, mas versões diferentes de 3.12 não são a baseline principal de validação;
+- **Python 3.12** recomendado e usado no CI;
+- Python 3.11+ pode funcionar, mas 3.12 é a baseline de referência;
 - FFmpeg instalado no sistema.
 
-### Caminho recomendado — Bash, Zsh e Fish
-
-Enquanto o repositório estiver privado, use SSH se sua chave GitHub já estiver configurada:
+Enquanto o repositório estiver privado, use SSH se sua chave GitHub estiver configurada:
 
 ```bash
 git clone git@github.com:Jczarf/public-youtube-downloader.git
@@ -153,15 +113,9 @@ cd public-youtube-downloader
 ./run.sh
 ```
 
-Quando o repositório estiver público, HTTPS também funciona sem autenticação:
+Os scripts usam diretamente `.venv/bin/python`; não é necessário ativar o ambiente virtual. Eles também resolvem o diretório do projeto automaticamente, portanto podem ser chamados por caminho absoluto.
 
-```bash
-git clone https://github.com/Jczarf/public-youtube-downloader.git
-```
-
-Os scripts usam diretamente `.venv/bin/python`, portanto **não é necessário ativar o ambiente virtual**.
-
-Se quiser escolher explicitamente o interpretador:
+Para escolher o interpretador:
 
 ```bash
 PYTHON_BIN=python3.12 ./install.sh
@@ -170,33 +124,15 @@ PYTHON_BIN=python3.12 ./install.sh
 ### Instalação manual
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py
 ```
 
-**Bash / Zsh:**
-
-```bash
-source .venv/bin/activate
-```
-
-**Fish:**
+No Fish, se quiser ativar o ambiente:
 
 ```fish
 source .venv/bin/activate.fish
-```
-
-Depois:
-
-```bash
-python -m pip install -r requirements.txt
-python main.py
-```
-
-### Sem ativar o virtualenv
-
-```bash
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python main.py
 ```
 
 ### FFmpeg
@@ -212,6 +148,8 @@ Arch Linux / CachyOS:
 ```bash
 sudo pacman -S ffmpeg
 ```
+
+Sem FFmpeg o aplicativo abre, mas bloqueia o início de downloads e informa o requisito.
 
 ## Dados locais
 
@@ -233,7 +171,18 @@ Histórico:
 ~/.config/youtube-downloader/history.json
 ```
 
-Arquivos baixados, listas pessoais, bancos, logs e temporários permanecem fora do Git.
+Em sistemas POSIX, os arquivos são gravados com permissão `0600` e o diretório privado usa `0700` quando o sistema de arquivos suporta essa semântica.
+
+O histórico guarda somente dados necessários para a UX: título, estado, formato, pasta, mensagem sanitizada e data. A URL original do vídeo não é persistida.
+
+## Dependências validadas
+
+```text
+PySide6==6.11.2
+yt-dlp==2026.8.19
+```
+
+As versões são fixadas para que uma instalação reproduza a mesma baseline testada. Atualizações devem ser feitas conscientemente e acompanhadas de nova execução de CI + Security Audit.
 
 ## Testes
 
@@ -242,35 +191,24 @@ Arquivos baixados, listas pessoais, bancos, logs e temporários permanecem fora 
 .venv/bin/python -m pytest -q
 ```
 
-O GitHub Actions também compila o projeto e instancia a GUI com `QT_QPA_PLATFORM=offscreen`.
+O CI também executa `pip check`, compila o código e instancia a GUI com `QT_QPA_PLATFORM=offscreen`.
 
-Os testes de interface verificam, entre outros pontos, exclusividade da navegação, estado do clipboard, seletor de qualidade, política das scrollbars, estados vazios e existência dos diálogos temáticos. Eles complementam, mas não substituem, inspeção visual em um desktop Linux real.
-
-## Segurança e privacidade
-
-- clipboard desligado por padrão;
-- nenhum link é lido até ativação explícita;
-- TLS do `yt-dlp` não é desativado;
-- URLs externas ao YouTube são rejeitadas;
-- arquivos pessoais e downloads ficam fora do repositório;
-- caminhos pessoais são abreviados na interface sempre que possível;
-- preferências e histórico são locais;
-- scanner dedicado verifica a edição pública no CI.
-
-Veja também [`SECURITY.md`](SECURITY.md).
+O workflow **Security Audit** verifica possíveis segredos na árvore/histórico Git alcançável e vulnerabilidades conhecidas das dependências Python via `pip-audit`.
 
 ## Limitações
 
-- compatibilidade com o YouTube depende do `yt-dlp` e pode mudar quando a plataforma muda;
-- FFmpeg é necessário para conversão, merge e recortes;
-- a baseline principal do CI usa Python 3.12;
-- o CI headless não substitui inspeção visual em Linux desktop real;
-- pequenas diferenças de renderização ainda podem existir conforme compositor, escala e disponibilidade das fontes do sistema;
-- o projeto é uma ferramenta pessoal em evolução, não um produto comercial ou serviço de download.
+- mudanças do YouTube podem exigir atualização do `yt-dlp`;
+- FFmpeg é obrigatório para os fluxos suportados;
+- cancelamento é cooperativo e pode não ser instantâneo durante resolução de metadados ou processamento externo;
+- CI headless não substitui inspeção visual em um desktop Linux real;
+- aparência pode variar levemente conforme fonte, compositor, escala e tema;
+- não é um serviço comercial nem um backend de download.
+
+Veja também [`SECURITY.md`](SECURITY.md).
 
 ## Status
 
-**Projeto pessoal em evolução / aplicação funcional para uso local.**
+**Aplicação funcional para uso local / projeto pessoal em evolução.**
 
 ## Autor
 
