@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 printf 'YouTube Downloader — instalação\n'
 
 if [ -n "${PYTHON_BIN:-}" ]; then
@@ -24,7 +27,7 @@ if sys.version_info[:2] != (3, 12):
 PY
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
-  echo 'Aviso: FFmpeg não encontrado. Conversão, merge e recortes exigem FFmpeg.' >&2
+  echo 'Aviso: FFmpeg não encontrado. O aplicativo bloqueará downloads até que ele seja instalado.' >&2
 fi
 
 "$PYTHON" -m venv .venv
