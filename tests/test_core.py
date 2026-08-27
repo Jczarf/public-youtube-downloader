@@ -7,7 +7,7 @@ import pytest
 
 from src.config import Config, validate_download_path
 from src.downloader import DownloadSpec, Downloader, build_options, parse_time, validate_clip
-from src.resolver import LinkType, classificar_link
+from src.resolver import LinkType, classificar_link, detectar_contexto_playlist
 from src.text_import import read_txt_entries
 
 
@@ -31,6 +31,30 @@ def test_classifica_playlist_e_pesquisa_url():
     kind, value = classificar_link("https://youtube.com/results?search_query=synthwave+mix")
     assert kind == LinkType.PESQUISA_URL
     assert value == "synthwave mix"
+
+
+def test_video_em_playlist_preserva_escolha_sem_download_acidental():
+    raw = (
+        "https://www.youtube.com/watch?v=boM3oFAFrXQ"
+        "&list=PLp6qYuqZnG5Yw8oz1_K12vcLE6mUtQEPw&index=1"
+    )
+    context = detectar_contexto_playlist(raw)
+    assert context is not None
+    assert context.video_url == "https://www.youtube.com/watch?v=boM3oFAFrXQ"
+    assert context.playlist_url == (
+        "https://www.youtube.com/playlist?list=PLp6qYuqZnG5Yw8oz1_K12vcLE6mUtQEPw"
+    )
+
+    # A classificação-base continua conservadora: sem decisão da GUI, é vídeo único.
+    kind, normalized = classificar_link(raw)
+    assert kind == LinkType.DIRETO
+    assert normalized == context.video_url
+
+
+def test_link_direto_sem_list_nao_cria_contexto_playlist():
+    assert detectar_contexto_playlist(
+        "https://www.youtube.com/watch?v=boM3oFAFrXQ"
+    ) is None
 
 
 def test_classifica_texto_como_pesquisa():
