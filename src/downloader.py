@@ -71,6 +71,7 @@ def build_options(spec: DownloadSpec, progress_hook: Callable[[dict], None]) -> 
         "retries": 3,
         "fragment_retries": 3,
         "concurrent_fragment_downloads": 4,
+        "socket_timeout": 20,
         "progress_hooks": [progress_hook],
     }
 
@@ -88,14 +89,18 @@ def build_options(spec: DownloadSpec, progress_hook: Callable[[dict], None]) -> 
         height = limits.get(spec.qualidade_video)
         if height:
             opts["format"] = (
-                f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
+                f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/"
+                f"best[ext=mp4][height<={height}]/best[height<={height}]"
             )
         else:
-            opts["format"] = "bestvideo+bestaudio/best"
+            opts["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
         opts["merge_output_format"] = "mp4"
 
     if start_s is not None or end_s is not None:
-        opts["download_ranges"] = download_range_func(None, [(start_s or 0.0, end_s or float("inf"))])
+        opts["download_ranges"] = download_range_func(
+            None,
+            [(start_s or 0.0, end_s or float("inf"))],
+        )
         opts["force_keyframes_at_cuts"] = True
 
     return opts
@@ -114,9 +119,18 @@ class Downloader:
         progress_callback: Callable[[Progress], None] | None = None,
         info_callback: Callable[[dict], None] | None = None,
     ) -> bool:
+        title_sent = False
+
         def hook(data: dict) -> None:
+            nonlocal title_sent
             if self._cancel.is_set():
                 raise RuntimeError("Download cancelado pelo usuário")
+
+            info = data.get("info_dict")
+            if info_callback and not title_sent and isinstance(info, dict):
+                info_callback(info)
+                title_sent = True
+
             if not progress_callback:
                 return
             downloaded = int(data.get("downloaded_bytes") or 0)
@@ -131,11 +145,12 @@ class Downloader:
             ))
 
         try:
+            if self._cancel.is_set():
+                return False
             with yt_dlp.YoutubeDL(build_options(self.spec, hook)) as ydl:
-                info = ydl.extract_info(self.spec.url, download=False)
-                if info_callback and info:
+                info = ydl.extract_info(self.spec.url, download=True)
+                if info_callback and info and not title_sent:
                     info_callback(info)
-                ydl.download([self.spec.url])
             return not self._cancel.is_set()
         except Exception as exc:
             if self._cancel.is_set() or "cancelado" in str(exc).lower():
