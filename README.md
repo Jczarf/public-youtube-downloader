@@ -20,16 +20,18 @@ Aplicação desktop para **baixar, organizar e acompanhar mídias do YouTube** c
 A GUI foi construída com **PySide6 / Qt 6** e concentra entrada de links, pesquisa, fila, histórico, listas TXT e configuração rápida em uma única aplicação desktop.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Jczarf/Jczarf/main/assets/youtube-downloader-ui.webp" alt="Interface do YouTube Downloader" width="100%" />
+  <img src="assets/youtube-downloader-ui.webp" alt="Interface real do YouTube Downloader" width="100%" />
 </p>
 
 <details>
 <summary><strong>Ver resultado de uma sessão real</strong></summary>
 <br />
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Jczarf/Jczarf/main/assets/youtube-downloader-output.webp" alt="YouTube Downloader e arquivos gerados" width="100%" />
+  <img src="assets/youtube-downloader-output.webp" alt="YouTube Downloader ao lado dos arquivos gerados em uma sessão real" width="100%" />
 </p>
 </details>
+
+As duas capturas acima são da **aplicação real em uso**.
 
 ## Visão geral
 
