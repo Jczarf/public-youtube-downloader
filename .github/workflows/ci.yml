@@ -38,7 +38,7 @@ jobs:
         run: |
           python - <<'PY'
           from PySide6.QtWidgets import QApplication
-          from src.app import YouTubeDownloaderWindow
+          from src.application import YouTubeDownloaderWindow
           app = QApplication([])
           window = YouTubeDownloaderWindow()
           assert window.windowTitle() == "YouTube Downloader"
