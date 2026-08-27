@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
+from enum import Enum
 from urllib.parse import parse_qs, unquote_plus, urlparse
 
 import yt_dlp
 
 
-class LinkType:
+class LinkType(str, Enum):
     DIRETO = "direto"
     PESQUISA_URL = "pesquisa_url"
     PESQUISA_TEXTO = "pesquisa_texto"
@@ -15,14 +15,20 @@ class LinkType:
     INVALIDO = "invalido"
 
 
-YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com"}
+YOUTUBE_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "youtu.be",
+    "music.youtube.com",
+}
 
 
 @dataclass(frozen=True)
 class ResolvedInput:
     urls: list[str]
     label: str
-    kind: str
+    kind: LinkType
 
 
 def _host(url: str) -> str:
@@ -39,7 +45,7 @@ def is_youtube_url(value: str) -> bool:
     return _host(raw) in YOUTUBE_HOSTS
 
 
-def classificar_link(entrada: str) -> tuple[str, str]:
+def classificar_link(entrada: str) -> tuple[LinkType, str]:
     value = entrada.strip()
     if not value:
         return LinkType.INVALIDO, ""
