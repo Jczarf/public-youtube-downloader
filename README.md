@@ -59,25 +59,92 @@ O trabalho de rede e download sai da thread principal para não congelar a inter
 - limite visual de concorrência entre 1 e 8 jobs;
 - validação de recortes antes de iniciar o download;
 - nomes de saída incluem o ID do vídeo para reduzir colisões;
+- instalação e execução não dependem da ativação manual do virtualenv;
 - testes para classificação de entrada, recorte, configuração e opções de segurança.
 
 ## Instalação
 
-Requer Python 3.11+ e FFmpeg instalado no sistema.
+### Requisitos
+
+- **Python 3.12 recomendado e usado como baseline principal do CI**;
+- Python 3.11+ pode funcionar, mas versões diferentes de 3.12 não são a baseline principal de validação;
+- FFmpeg instalado no sistema.
+
+### Caminho recomendado — funciona em Bash, Zsh e Fish
+
+Enquanto o repositório estiver privado, use SSH se sua chave GitHub já estiver configurada:
+
+```bash
+git clone git@github.com:Jczarf/public-youtube-downloader.git
+cd public-youtube-downloader
+./install.sh
+./run.sh
+```
+
+Quando o repositório estiver público, HTTPS também funciona sem autenticação:
 
 ```bash
 git clone https://github.com/Jczarf/public-youtube-downloader.git
-cd public-youtube-downloader
+```
+
+Os scripts usam diretamente `.venv/bin/python`, portanto **não é necessário ativar o ambiente virtual**.
+
+Se quiser escolher explicitamente o interpretador durante a instalação:
+
+```bash
+PYTHON_BIN=python3.12 ./install.sh
+```
+
+### Instalação manual
+
+Crie o ambiente:
+
+```bash
 python3 -m venv .venv
+```
+
+A ativação depende do shell.
+
+**Bash / Zsh:**
+
+```bash
 source .venv/bin/activate
-pip install -r requirements.txt
+```
+
+**Fish:**
+
+```fish
+source .venv/bin/activate.fish
+```
+
+Depois:
+
+```bash
+python -m pip install -r requirements.txt
 python main.py
 ```
 
-Ubuntu/Debian:
+### Alternativa independente do shell
+
+Você também pode ignorar completamente a ativação:
+
+```bash
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py
+```
+
+### Instalar FFmpeg
+
+Ubuntu / Debian:
 
 ```bash
 sudo apt install ffmpeg
+```
+
+Arch Linux / CachyOS:
+
+```bash
+sudo pacman -S ffmpeg
 ```
 
 ## Dados locais
@@ -98,9 +165,11 @@ Arquivos baixados, bancos, logs, listas pessoais e arquivos temporários permane
 
 ## Testes
 
+Com o virtualenv criado:
+
 ```bash
-pip install pytest
-pytest -q
+.venv/bin/python -m pip install pytest
+.venv/bin/python -m pytest -q
 ```
 
 O workflow do GitHub Actions também compila o projeto e instancia a GUI com `QT_QPA_PLATFORM=offscreen`.
@@ -109,6 +178,7 @@ O workflow do GitHub Actions também compila o projeto e instancia a GUI com `QT
 
 - compatibilidade com o YouTube depende do `yt-dlp` e pode mudar quando a plataforma muda;
 - FFmpeg é necessário para conversão, merge e recortes;
+- a baseline principal do CI usa Python 3.12; outras versões devem ser tratadas como compatibilidade a confirmar;
 - o CI headless não substitui inspeção visual em Linux desktop real;
 - Histórico e páginas secundárias da navegação ainda estão em evolução.
 
