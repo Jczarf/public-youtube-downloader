@@ -35,6 +35,14 @@ class ResolvedInput:
     kind: LinkType
 
 
+@dataclass(frozen=True)
+class PlaylistContext:
+    """Vídeo individual aberto dentro de uma playlist."""
+
+    video_url: str
+    playlist_url: str
+
+
 def _host(url: str) -> str:
     try:
         return (urlparse(url).hostname or "").lower()
@@ -69,13 +77,48 @@ def _canonical_video_url(parsed) -> str | None:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def _playlist_url_from_id(playlist_id: str) -> str | None:
+    if not PLAYLIST_ID_RE.fullmatch(playlist_id or ""):
+        return None
+    return f"https://www.youtube.com/playlist?list={playlist_id}"
+
+
 def _canonical_playlist_url(parsed) -> str | None:
     if parsed.path.rstrip("/") != "/playlist":
         return None
     playlist_id = parse_qs(parsed.query).get("list", [""])[0]
-    if not PLAYLIST_ID_RE.fullmatch(playlist_id or ""):
+    return _playlist_url_from_id(playlist_id)
+
+
+def detectar_contexto_playlist(entrada: str) -> PlaylistContext | None:
+    """Detecta quando um link de vídeo também carrega um `list=` válido.
+
+    A classificação normal continua conservadora e considera o link um vídeo
+    individual. A camada de interface pode então perguntar explicitamente ao
+    usuário se ele quer o vídeo ou a playlist inteira.
+    """
+
+    value = entrada.strip()
+    if value.startswith("www."):
+        value = "https://" + value
+    if not value.startswith(("http://", "https://")) or not is_youtube_url(value):
         return None
-    return f"https://www.youtube.com/playlist?list={playlist_id}"
+
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return None
+
+    video_url = _canonical_video_url(parsed)
+    if not video_url:
+        return None
+
+    playlist_id = parse_qs(parsed.query).get("list", [""])[0]
+    playlist_url = _playlist_url_from_id(playlist_id)
+    if not playlist_url:
+        return None
+
+    return PlaylistContext(video_url=video_url, playlist_url=playlist_url)
 
 
 def classificar_link(entrada: str) -> tuple[LinkType, str]:
