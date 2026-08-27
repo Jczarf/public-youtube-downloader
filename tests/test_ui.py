@@ -10,9 +10,11 @@ def test_sidebar_navega_exclusivamente(monkeypatch, tmp_path):
     app = QApplication.instance() or QApplication([])
     window = YouTubeDownloaderWindow()
 
-    assert window.pages.count() == 4
+    assert window.pages.count() == 3
+    assert len(window.nav_buttons) == 3
     assert window.pages.currentIndex() == 0
     assert sum(button.isChecked() for button in window.nav_buttons) == 1
+    assert all("Configurações" not in button.text() for button in window.nav_buttons)
 
     window.nav_buttons[1].click()
     app.processEvents()
@@ -26,16 +28,16 @@ def test_sidebar_navega_exclusivamente(monkeypatch, tmp_path):
     assert window.page_title.text() == "Listas TXT"
     assert sum(button.isChecked() for button in window.nav_buttons) == 1
 
-    window.nav_buttons[3].click()
+    window.nav_buttons[0].click()
     app.processEvents()
-    assert window.pages.currentIndex() == 3
-    assert window.page_title.text() == "Configurações"
+    assert window.pages.currentIndex() == 0
+    assert window.page_title.text() == "Downloader de mídia"
     assert sum(button.isChecked() for button in window.nav_buttons) == 1
 
     window.close()
 
 
-def test_controles_principais_sao_exclusivos(monkeypatch, tmp_path):
+def test_configuracao_rapida_controla_formato_qualidade_e_concorrencia(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     app = QApplication.instance() or QApplication([])
     window = YouTubeDownloaderWindow()
@@ -50,6 +52,32 @@ def test_controles_principais_sao_exclusivos(monkeypatch, tmp_path):
     app.processEvents()
     assert window.mp3.isChecked()
     assert not window.mp4.isChecked()
-    assert window.quality.currentText() in {"128", "192", "256", "320"}
+    assert window.quality.currentText() in {
+        "128 kbps",
+        "192 kbps",
+        "256 kbps",
+        "320 kbps",
+    }
+
+    window.concurrent_slider.setValue(5)
+    app.processEvents()
+    assert window.concurrent_value.text() == "5"
+
+    window.close()
+
+
+def test_clipboard_persiste_estado_local(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    app = QApplication.instance() or QApplication([])
+    window = YouTubeDownloaderWindow()
+
+    window.clip_button.setChecked(True)
+    app.processEvents()
+    assert window.config.get("clipboard_monitor") is True
+    assert "Ativo" in window.clip_button.text()
+
+    window.clip_button.setChecked(False)
+    app.processEvents()
+    assert window.config.get("clipboard_monitor") is False
 
     window.close()
