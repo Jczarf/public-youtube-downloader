@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from src.application import iniciar_app
+from src.app import iniciar_app
 
 
 if __name__ == "__main__":
