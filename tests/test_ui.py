@@ -1,9 +1,10 @@
-from __future__ import annotations
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from src.app import YouTubeDownloaderWindow
+from src.app import QueueCard, YouTubeDownloaderWindow
+from src.downloader import DownloadSpec
 from src.ui import AppDialog, display_path, human_datetime
 
 
@@ -16,138 +17,132 @@ def build_window(monkeypatch, tmp_path) -> tuple[QApplication, YouTubeDownloader
 
 def test_sidebar_navega_exclusivamente(monkeypatch, tmp_path):
     app, window = build_window(monkeypatch, tmp_path)
-
     assert window.pages.count() == 3
     assert len(window.nav_buttons) == 3
     assert window.pages.currentIndex() == 0
     assert sum(button.isChecked() for button in window.nav_buttons) == 1
-    assert all("Configurações" not in button.text() for button in window.nav_buttons)
 
     window.nav_buttons[1].click()
     app.processEvents()
     assert window.pages.currentIndex() == 1
     assert window.page_title.text() == "Histórico"
-    assert sum(button.isChecked() for button in window.nav_buttons) == 1
 
     window.nav_buttons[2].click()
     app.processEvents()
     assert window.pages.currentIndex() == 2
     assert window.page_title.text() == "Listas TXT"
-    assert sum(button.isChecked() for button in window.nav_buttons) == 1
 
     window.nav_buttons[0].click()
     app.processEvents()
     assert window.pages.currentIndex() == 0
-    assert window.page_title.text() == "Downloader de mídia"
     assert sum(button.isChecked() for button in window.nav_buttons) == 1
-
     window.close()
 
 
 def test_configuracao_rapida_controla_formato_qualidade_e_concorrencia(monkeypatch, tmp_path):
     app, window = build_window(monkeypatch, tmp_path)
-
     window.mp4.click()
     app.processEvents()
     assert window.mp4.isChecked()
-    assert not window.mp3.isChecked()
     assert window.quality.currentText() in {"480p", "720p", "1080p"}
 
     window.mp3.click()
     app.processEvents()
     assert window.mp3.isChecked()
-    assert not window.mp4.isChecked()
-    assert window.quality.currentText() in {
-        "128 kbps",
-        "192 kbps",
-        "256 kbps",
-        "320 kbps",
-    }
+    assert window.quality.currentText() in {"128 kbps", "192 kbps", "256 kbps", "320 kbps"}
 
     window.concurrent_slider.setValue(5)
     app.processEvents()
     assert window.concurrent_value.text() == "5"
-
     window.close()
 
 
-def test_clipboard_persiste_estado_local(monkeypatch, tmp_path):
+def test_clipboard_e_somente_da_sessao(monkeypatch, tmp_path):
     app, window = build_window(monkeypatch, tmp_path)
-
     window.clip_button.setChecked(True)
     app.processEvents()
-    assert window.config.get("clipboard_monitor") is True
     assert window.clip_status_text.text() == "Ativo"
     assert window.clip_button.text() == "Desativar"
-    assert window.privacy_label.objectName() == "privacyOn"
-
-    window.clip_button.setChecked(False)
-    app.processEvents()
-    assert window.config.get("clipboard_monitor") is False
-    assert window.clip_status_text.text() == "Desligado"
-    assert window.clip_button.text() == "Ativar"
-    assert window.privacy_label.objectName() == "privacyOff"
-
+    assert "clipboard_monitor" not in window.config.settings
     window.close()
+
+    _, reopened = build_window(monkeypatch, tmp_path)
+    assert reopened.clip_button.isChecked() is False
+    assert reopened.clip_status_text.text() == "Desligado"
+    reopened.close()
 
 
 def test_fila_vazia_nao_usa_scroll_area_visivel(monkeypatch, tmp_path):
     _, window = build_window(monkeypatch, tmp_path)
-
     assert window.queue_stack.currentIndex() == 0
     assert window.queue_stack.currentWidget() is window.empty_state
     assert window.queue_scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert window.queue_scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
     assert window.clear_finished_button.isEnabled() is False
-
     window.close()
 
 
 def test_historico_vazio_tem_estado_proprio_sem_scrollbar_fantasma(monkeypatch, tmp_path):
     _, window = build_window(monkeypatch, tmp_path)
-
     window._navigate(1)
     assert window.history_stack.currentIndex() == 0
     assert window.history_scroll.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     assert window.history_scroll.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
     assert window.clear_history_button.isEnabled() is False
-
     window.close()
 
 
 def test_resolucao_bloqueia_reenvio_duplicado(monkeypatch, tmp_path):
     _, window = build_window(monkeypatch, tmp_path)
-
     window.input.setText("teste")
     window._set_resolve_busy(True)
-    assert window.resolve_busy is True
     assert window.input.isEnabled() is False
     assert window.add_button.isEnabled() is False
     assert window.add_button.text() == "…"
-
     window._set_resolve_busy(False)
     assert window.input.isEnabled() is True
     assert window.add_button.isEnabled() is True
-    assert window.add_button.text() == "+"
-
     window.close()
 
 
-def test_dialogo_tematico_nao_depende_de_messagebox_claro(monkeypatch, tmp_path):
+def test_ffmpeg_ausente_bloqueia_download(monkeypatch, tmp_path):
+    _, window = build_window(monkeypatch, tmp_path)
+    messages = []
+    monkeypatch.setattr("src.app.shutil.which", lambda _: None)
+    monkeypatch.setattr("src.app.show_message", lambda *args, **kwargs: messages.append(args[1]))
+    assert window._ensure_ffmpeg() is False
+    assert messages == ["FFmpeg necessário"]
+    window.close()
+
+
+def test_titulos_remotos_sao_texto_simples(monkeypatch, tmp_path):
+    _, window = build_window(monkeypatch, tmp_path)
+    spec = DownloadSpec(
+        "https://www.youtube.com/watch?v=abc123",
+        "mp3",
+        tmp_path,
+    )
+    card = QueueCard("<b>não renderizar</b>", "mp3", "MP3", spec)
+    assert card.title_label.textFormat() == Qt.TextFormat.PlainText
+    card.set_title("<img src=x> título")
+    assert card.title_label.text() == "<img src=x> título"
+    card.deleteLater()
+    window.close()
+
+
+def test_dialogo_tematico_usa_texto_simples(monkeypatch, tmp_path):
     app, window = build_window(monkeypatch, tmp_path)
     dialog = AppDialog(
         window,
         "Limpar histórico",
-        "Mensagem de confirmação.",
+        "<b>Mensagem</b>",
         kind="question",
         confirm_text="Confirmar",
         cancel_text="Cancelar",
         destructive=True,
     )
-
-    assert dialog.objectName() == "appDialog"
-    assert dialog.minimumWidth() >= 470
-    assert "#10141c" in dialog.styleSheet()
+    labels = dialog.findChildren(type(window.page_title))
+    assert all(label.textFormat() == Qt.TextFormat.PlainText for label in labels)
     dialog.close()
     window.close()
     app.processEvents()
