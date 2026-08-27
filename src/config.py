@@ -15,7 +15,6 @@ def _chmod(path: Path, mode: int) -> None:
     try:
         os.chmod(path, mode)
     except OSError:
-        # Sistemas de arquivos sem semântica POSIX podem ignorar permissões Unix.
         pass
 
 
@@ -52,9 +51,12 @@ class Config:
         self.config_file = Path(config_file)
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
         _chmod(self.config_file.parent, 0o700)
+        existed = self.config_file.exists()
         self.settings = self.load()
-        if self.config_file.exists():
-            _chmod(self.config_file, 0o600)
+        if existed:
+            # Regrava somente as chaves conhecidas/validadas. Isso remove opções antigas,
+            # como a persistência do clipboard, e normaliza configurações corrompidas.
+            self.save()
 
     def _validated(self, data: dict[str, Any]) -> dict[str, Any]:
         result = self.DEFAULTS.copy()
