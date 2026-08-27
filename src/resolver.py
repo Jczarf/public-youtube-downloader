@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from itertools import islice
-from urllib.parse import parse_qs, quote_plus, unquote_plus, urlparse
+from urllib.parse import parse_qs, unquote_plus, urlparse
 
 import yt_dlp
 
