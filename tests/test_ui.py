@@ -3,9 +3,16 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+import src.app as app_module
 from src.app import QueueCard, YouTubeDownloaderWindow
 from src.downloader import DownloadSpec
 from src.ui import AppDialog, display_path, human_datetime
+
+
+MIXED_URL = (
+    "https://www.youtube.com/watch?v=boM3oFAFrXQ"
+    "&list=PLp6qYuqZnG5Yw8oz1_K12vcLE6mUtQEPw&index=1"
+)
 
 
 def build_window(monkeypatch, tmp_path) -> tuple[QApplication, YouTubeDownloaderWindow]:
@@ -146,6 +153,51 @@ def test_dialogo_tematico_usa_texto_simples(monkeypatch, tmp_path):
     dialog.close()
     window.close()
     app.processEvents()
+
+
+def test_link_misto_permite_escolher_playlist(monkeypatch, tmp_path):
+    _, window = build_window(monkeypatch, tmp_path)
+    started = []
+    monkeypatch.setattr(app_module, "choose_video_playlist_scope", lambda _parent: "playlist")
+    monkeypatch.setattr(window, "_ensure_ffmpeg", lambda: True)
+    monkeypatch.setattr(window.resolve_pool, "start", lambda worker: started.append(worker.value))
+
+    window.input.setText(MIXED_URL)
+    window._resolve_input()
+
+    assert started == [
+        "https://www.youtube.com/playlist?list=PLp6qYuqZnG5Yw8oz1_K12vcLE6mUtQEPw"
+    ]
+    window.close()
+
+
+def test_link_misto_permite_escolher_video(monkeypatch, tmp_path):
+    _, window = build_window(monkeypatch, tmp_path)
+    started = []
+    monkeypatch.setattr(app_module, "choose_video_playlist_scope", lambda _parent: "video")
+    monkeypatch.setattr(window, "_ensure_ffmpeg", lambda: True)
+    monkeypatch.setattr(window.resolve_pool, "start", lambda worker: started.append(worker.value))
+
+    window.input.setText(MIXED_URL)
+    window._resolve_input()
+
+    assert started == ["https://www.youtube.com/watch?v=boM3oFAFrXQ"]
+    window.close()
+
+
+def test_link_misto_cancelado_nao_inicia_resolucao(monkeypatch, tmp_path):
+    _, window = build_window(monkeypatch, tmp_path)
+    started = []
+    monkeypatch.setattr(app_module, "choose_video_playlist_scope", lambda _parent: None)
+    monkeypatch.setattr(window, "_ensure_ffmpeg", lambda: True)
+    monkeypatch.setattr(window.resolve_pool, "start", lambda worker: started.append(worker.value))
+
+    window.input.setText(MIXED_URL)
+    window._resolve_input()
+
+    assert started == []
+    assert window.input.text() == MIXED_URL
+    window.close()
 
 
 def test_helpers_de_apresentacao_encurtam_caminho_e_data(tmp_path):
