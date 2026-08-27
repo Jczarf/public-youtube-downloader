@@ -41,7 +41,7 @@ class Config:
         "formato_padrao": "mp3",
         "qualidade_audio": "192",
         "qualidade_video": "1080p",
-        "max_downloads_simultaneos": 3,
+        "max_downloads_simultaneos": 2,
     }
 
     def __init__(self, config_file: Path | None = None) -> None:
