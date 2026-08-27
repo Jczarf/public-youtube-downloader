@@ -4,6 +4,22 @@ Aplicação desktop de uso pessoal para organizar downloads de mídia do YouTube
 
 > Projeto pessoal em evolução. A edição pública foi refatorada para remover dados pessoais, reduzir superfície de ataque, melhorar concorrência e oferecer uma interface desktop consistente com o mockup de portfólio. Use apenas com conteúdo que você tem direito de acessar e respeite os termos da plataforma.
 
+## Demonstração
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Jczarf/Jczarf/main/assets/youtube-downloader-ui.webp" alt="Interface real do YouTube Downloader" width="100%" />
+</p>
+
+A tela principal reúne entrada de links e pesquisas, fila de downloads, monitor de clipboard opt-in e configuração rápida em uma única interface.
+
+<details>
+<summary><strong>Ver resultado de uma sessão real</strong></summary>
+<br />
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Jczarf/Jczarf/main/assets/youtube-downloader-output.webp" alt="YouTube Downloader ao lado da pasta com arquivos gerados" width="100%" />
+</p>
+</details>
+
 ## O que está implementado
 
 - interface desktop em **PySide6 / Qt 6**;
