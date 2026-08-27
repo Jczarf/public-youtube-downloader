@@ -121,6 +121,43 @@ class StyledComboBox(QComboBox):
         painter.end()
 
 
+_DIALOG_STYLE = f"""
+QDialog#appDialog, QDialog#playlistScopeDialog {{ background:{C['window']}; color:{C['text']}; }}
+QFrame#dialogCard {{
+    background:{C['panel']}; border:1px solid {C['border']}; border-radius:16px;
+}}
+QLabel#dialogTitle {{ color:{C['text']}; font-size:16px; font-weight:800; }}
+QLabel#dialogText {{ color:{C['muted']}; font-size:12px; }}
+QLabel#dialogMark_info, QLabel#dialogMark_question {{
+    color:{C['blue']}; background:#152033; border:1px solid #29456e;
+    border-radius:19px; font-size:18px; font-weight:900;
+}}
+QLabel#dialogMark_warning {{
+    color:{C['amber']}; background:#292312; border:1px solid #5a4a1f;
+    border-radius:19px; font-size:18px; font-weight:900;
+}}
+QLabel#dialogMark_error {{
+    color:{C['accent']}; background:#28151a; border:1px solid #5d2b34;
+    border-radius:19px; font-size:18px; font-weight:900;
+}}
+QPushButton {{
+    min-width:92px; background:#161e29; color:{C['text']};
+    border:1px solid #2b3645; border-radius:10px; padding:9px 14px;
+    font-weight:700;
+}}
+QPushButton:hover {{ background:#1a2431; border-color:#465569; }}
+QPushButton#dialogPrimary {{
+    background:{C['accent']}; color:#16090b; border:none;
+}}
+QPushButton#dialogDanger {{
+    background:#28151a; color:{C['accent']}; border:1px solid #5d2b34;
+}}
+QPushButton#dialogPlaylist {{
+    background:#152033; color:{C['blue']}; border:1px solid #29456e;
+}}
+"""
+
+
 class AppDialog(QDialog):
     """Diálogo próprio para impedir QMessageBox claro/ilegível em temas escuros."""
 
@@ -188,40 +225,85 @@ class AppDialog(QDialog):
         actions.addWidget(confirm)
         root.addLayout(actions)
 
-        self.setStyleSheet(
-            f"""
-            QDialog#appDialog {{ background:{C['window']}; color:{C['text']}; }}
-            QFrame#dialogCard {{
-                background:{C['panel']}; border:1px solid {C['border']}; border-radius:16px;
-            }}
-            QLabel#dialogTitle {{ color:{C['text']}; font-size:16px; font-weight:800; }}
-            QLabel#dialogText {{ color:{C['muted']}; font-size:12px; }}
-            QLabel#dialogMark_info, QLabel#dialogMark_question {{
-                color:{C['blue']}; background:#152033; border:1px solid #29456e;
-                border-radius:19px; font-size:18px; font-weight:900;
-            }}
-            QLabel#dialogMark_warning {{
-                color:{C['amber']}; background:#292312; border:1px solid #5a4a1f;
-                border-radius:19px; font-size:18px; font-weight:900;
-            }}
-            QLabel#dialogMark_error {{
-                color:{C['accent']}; background:#28151a; border:1px solid #5d2b34;
-                border-radius:19px; font-size:18px; font-weight:900;
-            }}
-            QPushButton {{
-                min-width:92px; background:#161e29; color:{C['text']};
-                border:1px solid #2b3645; border-radius:10px; padding:9px 14px;
-                font-weight:700;
-            }}
-            QPushButton:hover {{ background:#1a2431; border-color:#465569; }}
-            QPushButton#dialogPrimary {{
-                background:{C['accent']}; color:#16090b; border:none;
-            }}
-            QPushButton#dialogDanger {{
-                background:#28151a; color:{C['accent']}; border:1px solid #5d2b34;
-            }}
-            """
+        self.setStyleSheet(_DIALOG_STYLE)
+
+
+class PlaylistScopeDialog(QDialog):
+    """Escolha explícita para links de vídeo que pertencem a uma playlist."""
+
+    def __init__(self, parent: QWidget | None) -> None:
+        super().__init__(parent)
+        self.choice: str | None = None
+        self.setModal(True)
+        self.setWindowTitle("Vídeo dentro de playlist")
+        self.setMinimumWidth(520)
+        self.setMaximumWidth(680)
+        self.setObjectName("playlistScopeDialog")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        card = QFrame()
+        card.setObjectName("dialogCard")
+        outer.addWidget(card)
+
+        root = QVBoxLayout(card)
+        root.setContentsMargins(22, 20, 22, 18)
+        root.setSpacing(16)
+
+        top = QHBoxLayout()
+        top.setSpacing(14)
+        mark = plain_label("≡")
+        mark.setObjectName("dialogMark_question")
+        mark.setFixedSize(38, 38)
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(mark)
+
+        copy = QVBoxLayout()
+        copy.setSpacing(6)
+        title = plain_label("Este vídeo pertence a uma playlist")
+        title.setObjectName("dialogTitle")
+        copy.addWidget(title)
+        body = plain_label(
+            "Escolha o que deseja adicionar à fila. Para evitar downloads acidentais, "
+            "somente este vídeo é a opção padrão."
         )
+        body.setObjectName("dialogText")
+        body.setWordWrap(True)
+        copy.addWidget(body)
+        top.addLayout(copy, 1)
+        root.addLayout(top)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        cancel = QPushButton("Cancelar")
+        cancel.clicked.connect(self.reject)
+        actions.addWidget(cancel)
+        actions.addStretch()
+
+        self.playlist_button = QPushButton("Playlist completa")
+        self.playlist_button.setObjectName("dialogPlaylist")
+        self.playlist_button.clicked.connect(lambda: self._select("playlist"))
+        actions.addWidget(self.playlist_button)
+
+        self.video_button = QPushButton("Somente este vídeo")
+        self.video_button.setObjectName("dialogPrimary")
+        self.video_button.setDefault(True)
+        self.video_button.clicked.connect(lambda: self._select("video"))
+        actions.addWidget(self.video_button)
+        root.addLayout(actions)
+
+        self.setStyleSheet(_DIALOG_STYLE)
+
+    def _select(self, choice: str) -> None:
+        self.choice = choice
+        self.accept()
+
+
+def choose_video_playlist_scope(parent: QWidget | None) -> str | None:
+    dialog = PlaylistScopeDialog(parent)
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return dialog.choice
 
 
 def ask_confirmation(
