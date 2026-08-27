@@ -37,7 +37,8 @@ A tela principal reúne entrada de links e pesquisas, fila de downloads, monitor
 - pools separados para resolução e downloads;
 - histórico local de concluídos, erros e cancelamentos;
 - preferências locais em diretório XDG;
-- retries, retomada e fragmentos concorrentes do `yt-dlp`;
+- retries com backoff, retomada e perfil de rede conservador do `yt-dlp`;
+- autenticação por cookies do navegador somente quando ativada explicitamente pelo usuário;
 - estados vazios próprios, sem scrollbars decorativas;
 - diálogos próprios no tema escuro;
 - CI com testes offline e smoke test da GUI;
@@ -120,6 +121,8 @@ Textos vindos da rede, como títulos e mensagens de erro, são exibidos como **t
 - TXT: máximo de **2 MB**, **500 entradas** e **4096 caracteres por linha**;
 - playlists são iteradas até o limite em vez de materializar toda a coleção;
 - o downloader evita uma extração duplicada de metadados antes da transferência;
+- transferências usam **1 fragmento por download**, retries com backoff e pausa curta entre requisições;
+- novas instalações começam com **2 downloads simultâneos**; preferências já salvas não são sobrescritas silenciosamente;
 - MP4 prioriza vídeo MP4 + áudio M4A quando disponíveis;
 - scripts `install.sh` e `run.sh` funcionam mesmo quando chamados a partir de outro diretório;
 - dependências de runtime são fixadas na baseline validada;
@@ -180,6 +183,20 @@ sudo pacman -S ffmpeg
 
 Sem FFmpeg o aplicativo abre, mas bloqueia o início de downloads e informa o requisito.
 
+### Quando o YouTube pedir verificação da sessão
+
+Alguns vídeos ou sessões podem receber a mensagem **“Sign in to confirm you're not a bot”**. O aplicativo **não lê cookies do navegador por padrão**. Se isso ocorrer, feche o app e execute-o explicitamente com a sessão do navegador em que você já está autenticado:
+
+```bash
+env YT_DLP_COOKIES_FROM_BROWSER=firefox ./run.sh
+```
+
+Troque `firefox` por `chrome`, `chromium`, `brave`, `edge`, `opera`, `vivaldi`, `whale` ou `safari`, conforme o navegador usado. O acesso aos cookies acontece somente nessa execução e somente quando a variável é definida.
+
+Para playlists grandes, mantenha a concorrência em **1 ou 2** se o YouTube começar a limitar requisições. O motor de download já usa um único fragmento por item e backoff entre retries para reduzir rajadas desnecessárias.
+
+Nunca exporte cookies para dentro do repositório e não versione arquivos de sessão/autenticação.
+
 ## Dados locais
 
 Preferências:
@@ -222,13 +239,14 @@ As versões são fixadas para que uma instalação reproduza a mesma baseline te
 
 O CI também executa `pip check`, compila o código e instancia a GUI com `QT_QPA_PLATFORM=offscreen`.
 
-Os testes cobrem também a detecção de `watch?v=...&list=...`, a escolha de vídeo/playlist e o cancelamento da decisão antes de iniciar a resolução.
+Os testes cobrem também a detecção de `watch?v=...&list=...`, a escolha de vídeo/playlist, o perfil conservador de rede, o opt-in de cookies e o cancelamento da decisão antes de iniciar a resolução.
 
 O workflow **Security Audit** verifica possíveis segredos na árvore/histórico Git alcançável e vulnerabilidades conhecidas das dependências Python via `pip-audit`.
 
 ## Limitações
 
 - mudanças do YouTube podem exigir atualização do `yt-dlp`;
+- o YouTube pode exigir uma sessão autenticada mesmo quando o vídeo está público;
 - FFmpeg é obrigatório para os fluxos suportados;
 - cancelamento é cooperativo e pode não ser instantâneo durante resolução de metadados ou processamento externo;
 - CI headless não substitui inspeção visual em um desktop Linux real;
