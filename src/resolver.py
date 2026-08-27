@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
-from urllib.parse import parse_qs, unquote_plus, urlparse
+from itertools import islice
+from urllib.parse import parse_qs, quote_plus, unquote_plus, urlparse
 
 import yt_dlp
 
@@ -22,6 +24,8 @@ YOUTUBE_HOSTS = {
     "youtu.be",
     "music.youtube.com",
 }
+VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,32}$")
+PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,35 @@ def is_youtube_url(value: str) -> bool:
     return _host(raw) in YOUTUBE_HOSTS
 
 
+def _canonical_video_url(parsed) -> str | None:
+    host = (parsed.hostname or "").lower()
+    path = parsed.path.rstrip("/")
+    params = parse_qs(parsed.query)
+
+    video_id = ""
+    if host == "youtu.be":
+        video_id = path.lstrip("/").split("/", 1)[0]
+    elif path == "/watch":
+        video_id = params.get("v", [""])[0]
+    else:
+        match = re.fullmatch(r"/(?:shorts|live|embed)/([A-Za-z0-9_-]{6,32})", path)
+        if match:
+            video_id = match.group(1)
+
+    if not VIDEO_ID_RE.fullmatch(video_id or ""):
+        return None
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
+def _canonical_playlist_url(parsed) -> str | None:
+    if parsed.path.rstrip("/") != "/playlist":
+        return None
+    playlist_id = parse_qs(parsed.query).get("list", [""])[0]
+    if not PLAYLIST_ID_RE.fullmatch(playlist_id or ""):
+        return None
+    return f"https://www.youtube.com/playlist?list={playlist_id}"
+
+
 def classificar_link(entrada: str) -> tuple[LinkType, str]:
     value = entrada.strip()
     if not value:
@@ -54,14 +87,21 @@ def classificar_link(entrada: str) -> tuple[LinkType, str]:
     if normalized.startswith(("http://", "https://")):
         if not is_youtube_url(normalized):
             return LinkType.INVALIDO, normalized
+
         parsed = urlparse(normalized)
-        params = parse_qs(parsed.query)
-        if parsed.path == "/playlist" or ("list" in params and "v" not in params):
-            return LinkType.PLAYLIST, normalized
-        if parsed.path == "/results":
-            query = unquote_plus(params.get("search_query", [""])[0]).strip()
-            return LinkType.PESQUISA_URL, query
-        return LinkType.DIRETO, normalized
+        if parsed.path.rstrip("/") == "/results":
+            query = unquote_plus(parse_qs(parsed.query).get("search_query", [""])[0]).strip()
+            return (LinkType.PESQUISA_URL, query) if query else (LinkType.INVALIDO, normalized)
+
+        playlist = _canonical_playlist_url(parsed)
+        if playlist:
+            return LinkType.PLAYLIST, playlist
+
+        direct = _canonical_video_url(parsed)
+        if direct:
+            return LinkType.DIRETO, direct
+
+        return LinkType.INVALIDO, normalized
 
     return LinkType.PESQUISA_TEXTO, value
 
@@ -73,7 +113,13 @@ def _ydl_metadata_options() -> dict:
         "extract_flat": True,
         "skip_download": True,
         "retries": 2,
+        "socket_timeout": 15,
     }
+
+
+def _canonicalize_extracted_url(value: str) -> str | None:
+    kind, normalized = classificar_link(value)
+    return normalized if kind == LinkType.DIRETO else None
 
 
 def buscar_primeiro_video(query: str) -> str | None:
@@ -83,15 +129,19 @@ def buscar_primeiro_video(query: str) -> str | None:
     try:
         with yt_dlp.YoutubeDL(_ydl_metadata_options()) as ydl:
             result = ydl.extract_info(f"ytsearch1:{query}", download=False)
-        entries = list((result or {}).get("entries") or [])
-        first = entries[0] if entries else result
+        entries = (result or {}).get("entries") or []
+        first = next(iter(entries), result)
         if not first:
             return None
-        video_id = first.get("id")
+        video_id = str(first.get("id") or "")
         webpage_url = first.get("webpage_url") or first.get("url")
         if isinstance(webpage_url, str) and webpage_url.startswith("http"):
-            return webpage_url
-        return f"https://www.youtube.com/watch?v={video_id}" if video_id else None
+            canonical = _canonicalize_extracted_url(webpage_url)
+            if canonical:
+                return canonical
+        if VIDEO_ID_RE.fullmatch(video_id):
+            return f"https://www.youtube.com/watch?v={video_id}"
+        return None
     except Exception:
         return None
 
@@ -101,14 +151,18 @@ def resolver_playlist(url: str, max_items: int = 200) -> list[str]:
         with yt_dlp.YoutubeDL(_ydl_metadata_options()) as ydl:
             result = ydl.extract_info(url, download=False)
         urls: list[str] = []
-        for entry in list((result or {}).get("entries") or [])[:max_items]:
+        entries = (result or {}).get("entries") or []
+        for entry in islice(entries, max(1, min(int(max_items), 200))):
             if not entry:
                 continue
-            video_id = entry.get("id")
             webpage_url = entry.get("webpage_url") or entry.get("url")
             if isinstance(webpage_url, str) and webpage_url.startswith("http"):
-                urls.append(webpage_url)
-            elif video_id:
+                canonical = _canonicalize_extracted_url(webpage_url)
+                if canonical:
+                    urls.append(canonical)
+                    continue
+            video_id = str(entry.get("id") or "")
+            if VIDEO_ID_RE.fullmatch(video_id):
                 urls.append(f"https://www.youtube.com/watch?v={video_id}")
         return urls
     except Exception:
@@ -118,7 +172,7 @@ def resolver_playlist(url: str, max_items: int = 200) -> list[str]:
 def resolver_entrada(entrada: str) -> ResolvedInput:
     kind, value = classificar_link(entrada)
     if kind == LinkType.INVALIDO:
-        raise ValueError("Informe um link do YouTube ou um texto para pesquisa.")
+        raise ValueError("Informe um link de vídeo/playlist do YouTube ou um texto para pesquisa.")
     if kind == LinkType.DIRETO:
         return ResolvedInput([value], "Link direto", kind)
     if kind == LinkType.PLAYLIST:
