@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -114,6 +113,7 @@ class QueueCard(QFrame):
     def __init__(self, label: str, formato: str, detail: str) -> None:
         super().__init__()
         self.setObjectName("queueCard")
+        self.setMinimumHeight(106)
         self.speed = 0.0
 
         root = QVBoxLayout(self)
@@ -210,7 +210,7 @@ class YouTubeDownloaderWindow(QMainWindow):
         self.completed_count = 0
 
         self.setWindowTitle("YouTube Downloader")
-        self.resize(1540, 920)
+        self.resize(1600, 960)
         self.setMinimumSize(1180, 760)
         self._theme()
         self._build()
@@ -230,14 +230,18 @@ class YouTubeDownloaderWindow(QMainWindow):
             QFrame#sidebar {{ background:{C['sidebar']}; border-right:1px solid {C['border']}; }}
             QFrame#panel, QFrame#queueCard {{ background:{C['panel']}; border:1px solid {C['border']}; border-radius:14px; }}
             QFrame#queueCard {{ background:{C['panel2']}; }}
+            QFrame#emptyState {{ background:#0b1017; border:1px dashed #2a3442; border-radius:14px; }}
             QLabel {{ color:{C['text']}; background:transparent; }}
             QLabel#muted {{ color:{C['muted']}; font-size:12px; }}
             QLabel#queueTitle {{ font-size:15px; font-weight:700; }}
+            QLabel#emptyTitle {{ color:{C['text']}; font-size:18px; font-weight:800; }}
+            QLabel#emptyHint {{ color:{C['muted']}; font-size:12px; }}
             QLabel#mediaIcon {{ background:#24151a; color:{C['accent']}; border-radius:10px; font-size:18px; font-weight:800; }}
             QLabel#statusWaiting {{ color:{C['amber']}; background:#292312; border-radius:10px; padding:5px 10px; font-weight:700; }}
             QLabel#statusActive {{ color:{C['blue']}; background:#152033; border-radius:10px; padding:5px 10px; font-weight:700; }}
             QLabel#statusDone {{ color:{C['green']}; background:#102319; border-radius:10px; padding:5px 10px; font-weight:700; }}
             QLabel#statusError {{ color:{C['accent']}; background:#28151a; border-radius:10px; padding:5px 10px; font-weight:700; }}
+            QLabel#queueBadge {{ color:{C['green']}; background:#102319; border-radius:10px; padding:5px 9px; font-weight:750; }}
             QPushButton {{ background:#161e29; color:{C['text']}; border:1px solid #2b3645; border-radius:10px; padding:10px 14px; font-weight:650; }}
             QPushButton:hover {{ border-color:#465569; }}
             QPushButton#primary {{ background:{C['accent']}; color:#16090b; border:none; font-weight:800; }}
@@ -245,11 +249,15 @@ class YouTubeDownloaderWindow(QMainWindow):
             QPushButton#nav {{ background:transparent; border:none; color:{C['muted']}; text-align:left; padding:12px 14px; }}
             QPushButton#nav:checked {{ background:#29171c; color:{C['text']}; border:1px solid #51262d; }}
             QPushButton#iconButton {{ padding:0; background:transparent; color:{C['muted']}; border:none; font-size:21px; }}
-            QLineEdit {{ background:#0a0f16; color:{C['text']}; border:1px solid #2a3442; border-radius:11px; padding:12px 14px; }}
+            QPushButton#formatButton {{ background:#151d28; }}
+            QPushButton#formatButton:checked {{ background:#2b1920; color:{C['text']}; border:1px solid #5d2b34; }}
+            QPushButton#clipToggle:checked {{ background:#102319; color:{C['green']}; border:1px solid #24573a; }}
+            QLineEdit {{ background:#0a0f16; color:{C['text']}; border:1px solid #2a3442; border-radius:11px; padding:12px 14px; min-height:20px; }}
             QLineEdit:focus {{ border-color:{C['accent']}; }}
             QProgressBar {{ background:#080c12; border:none; border-radius:4px; min-height:8px; max-height:8px; }}
             QProgressBar::chunk {{ background:{C['accent']}; border-radius:4px; }}
-            QScrollArea {{ background:transparent; border:none; }}
+            QScrollArea#queueScroll {{ background:transparent; border:none; }}
+            QWidget#queueViewport, QWidget#queueBody {{ background:{C['panel']}; }}
             QScrollBar:vertical {{ background:transparent; width:8px; }}
             QScrollBar::handle:vertical {{ background:#2a3543; border-radius:4px; min-height:30px; }}
         """)
@@ -269,7 +277,7 @@ class YouTubeDownloaderWindow(QMainWindow):
 
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(230)
+        sidebar.setFixedWidth(255)
         shell.addWidget(sidebar)
         self._build_sidebar(sidebar)
 
@@ -324,6 +332,7 @@ class YouTubeDownloaderWindow(QMainWindow):
         clip_layout.setContentsMargins(20, 16, 20, 16)
         clip_layout.addWidget(self._heading("Monitor de clipboard", "Só lê links após ativação explícita."))
         self.clip_button = QPushButton("●  Desligado — Ativar")
+        self.clip_button.setObjectName("clipToggle")
         self.clip_button.setCheckable(True)
         self.clip_button.toggled.connect(self._toggle_clipboard)
         clip_layout.addWidget(self.clip_button)
@@ -338,28 +347,56 @@ class YouTubeDownloaderWindow(QMainWindow):
         qtitle = QLabel("Fila de downloads")
         qtitle.setStyleSheet("font-size:20px;font-weight:800;")
         qhead.addWidget(qtitle)
-        self.queue_badge = QLabel("0 itens")
-        self.queue_badge.setStyleSheet(f"color:{C['green']};font-weight:700;")
+        self.queue_badge = QLabel("0 ativos • 0 concluídos")
+        self.queue_badge.setObjectName("queueBadge")
         qhead.addWidget(self.queue_badge)
         qhead.addStretch()
-        self.speed_label = QLabel("0 B/s")
+        self.speed_label = QLabel("Velocidade total: 0.0 B/s")
         self.speed_label.setObjectName("muted")
         qhead.addWidget(self.speed_label)
         qlayout.addLayout(qhead)
 
         scroll = QScrollArea()
+        scroll.setObjectName("queueScroll")
         scroll.setWidgetResizable(True)
+        scroll.viewport().setObjectName("queueViewport")
         scroll_body = QWidget()
+        scroll_body.setObjectName("queueBody")
         self.queue_layout = QVBoxLayout(scroll_body)
-        self.queue_layout.setContentsMargins(0, 8, 4, 0)
+        self.queue_layout.setContentsMargins(0, 10, 4, 0)
         self.queue_layout.setSpacing(10)
+
+        self.empty_state = QFrame()
+        self.empty_state.setObjectName("emptyState")
+        self.empty_state.setMinimumHeight(310)
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(28, 28, 28, 28)
+        empty_layout.addStretch()
+        empty_icon = QLabel("⇩")
+        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_icon.setStyleSheet(f"color:{C['accent']};font-size:34px;font-weight:800;")
+        empty_title = QLabel("Sua fila está vazia")
+        empty_title.setObjectName("emptyTitle")
+        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_hint = QLabel("Cole um link, pesquise uma mídia ou importe uma lista TXT para começar.")
+        empty_hint.setObjectName("emptyHint")
+        empty_hint.setWordWrap(True)
+        empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(empty_icon)
+        empty_layout.addSpacing(8)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addSpacing(4)
+        empty_layout.addWidget(empty_hint)
+        empty_layout.addStretch()
+        self.queue_layout.addWidget(self.empty_state)
         self.queue_layout.addStretch()
+
         scroll.setWidget(scroll_body)
         qlayout.addWidget(scroll, 1)
         content.addWidget(queue_panel, 1)
 
         settings = self._panel()
-        settings.setFixedWidth(350)
+        settings.setFixedWidth(360)
         sl = QVBoxLayout(settings)
         sl.setContentsMargins(20, 18, 20, 18)
         s_title = QLabel("Configuração rápida")
@@ -370,12 +407,14 @@ class YouTubeDownloaderWindow(QMainWindow):
         self.mp3 = QPushButton("MP3")
         self.mp4 = QPushButton("MP4")
         for b in (self.mp3, self.mp4):
+            b.setObjectName("formatButton")
             b.setCheckable(True)
         self.mp3.setChecked(self.config.get("formato_padrao") == "mp3")
         self.mp4.setChecked(not self.mp3.isChecked())
         self.mp3.clicked.connect(lambda: self._set_format("mp3"))
         self.mp4.clicked.connect(lambda: self._set_format("mp4"))
-        fmtrow.addWidget(self.mp3); fmtrow.addWidget(self.mp4)
+        fmtrow.addWidget(self.mp3)
+        fmtrow.addWidget(self.mp4)
         sl.addLayout(fmtrow)
         sl.addWidget(self._small_label("Qualidade"))
         self.quality = QLineEdit(str(self.config.get("qualidade_audio", "192")))
@@ -383,9 +422,12 @@ class YouTubeDownloaderWindow(QMainWindow):
         sl.addWidget(self.quality)
         sl.addWidget(self._small_label("Recorte"))
         cut = QHBoxLayout()
-        self.start_time = QLineEdit(); self.start_time.setPlaceholderText("De  00:03")
-        self.end_time = QLineEdit(); self.end_time.setPlaceholderText("Até  02:30")
-        cut.addWidget(self.start_time); cut.addWidget(self.end_time)
+        self.start_time = QLineEdit()
+        self.start_time.setPlaceholderText("De  00:03")
+        self.end_time = QLineEdit()
+        self.end_time.setPlaceholderText("Até  02:30")
+        cut.addWidget(self.start_time)
+        cut.addWidget(self.end_time)
         sl.addLayout(cut)
         sl.addWidget(self._small_label("Pasta de destino"))
         self.destination = QLineEdit(str(self.config.get("download_path")))
@@ -410,9 +452,9 @@ class YouTubeDownloaderWindow(QMainWindow):
 
     def _build_sidebar(self, sidebar: QFrame) -> None:
         lay = QVBoxLayout(sidebar)
-        lay.setContentsMargins(16, 24, 16, 20)
+        lay.setContentsMargins(18, 24, 18, 20)
         brand = QLabel("▶  YouTube Downloader")
-        brand.setStyleSheet(f"font-size:20px;font-weight:850;color:{C['text']};")
+        brand.setStyleSheet(f"font-size:17px;font-weight:850;color:{C['text']};")
         lay.addWidget(brand)
         sub = QLabel("DOWNLOADER DE MÍDIA")
         sub.setStyleSheet(f"color:{C['muted']};font-size:10px;font-weight:700;")
@@ -434,7 +476,8 @@ class YouTubeDownloaderWindow(QMainWindow):
         self.privacy_label.setStyleSheet(f"color:{C['green']};font-weight:750;")
         pv.addWidget(self.privacy_label)
         note = QLabel("Nenhum link é lido até você ativar o monitor.")
-        note.setWordWrap(True); note.setObjectName("muted")
+        note.setWordWrap(True)
+        note.setObjectName("muted")
         pv.addWidget(note)
         lay.addWidget(privacy)
         local = QLabel("Uso pessoal • local")
@@ -443,10 +486,15 @@ class YouTubeDownloaderWindow(QMainWindow):
 
     def _heading(self, title: str, subtitle: str) -> QWidget:
         box = QWidget()
-        l = QVBoxLayout(box); l.setContentsMargins(0,0,0,6); l.setSpacing(2)
-        a = QLabel(title); a.setStyleSheet("font-size:16px;font-weight:750;")
-        b = QLabel(subtitle); b.setObjectName("muted")
-        l.addWidget(a); l.addWidget(b)
+        l = QVBoxLayout(box)
+        l.setContentsMargins(0, 0, 0, 6)
+        l.setSpacing(2)
+        a = QLabel(title)
+        a.setStyleSheet("font-size:16px;font-weight:750;")
+        b = QLabel(subtitle)
+        b.setObjectName("muted")
+        l.addWidget(a)
+        l.addWidget(b)
         return box
 
     def _small_label(self, value: str) -> QLabel:
@@ -458,7 +506,8 @@ class YouTubeDownloaderWindow(QMainWindow):
         self.mp3.setChecked(fmt == "mp3")
         self.mp4.setChecked(fmt == "mp4")
         self.quality.setText(
-            str(self.config.get("qualidade_audio", "192")) if fmt == "mp3"
+            str(self.config.get("qualidade_audio", "192"))
+            if fmt == "mp3"
             else str(self.config.get("qualidade_video", "1080p"))
         )
 
@@ -475,7 +524,6 @@ class YouTubeDownloaderWindow(QMainWindow):
     @Slot(object)
     def _resolved(self, result: object) -> None:
         self.input.setEnabled(True)
-        original = self.input.text().strip()
         self.input.clear()
         for url in result.urls:
             label = result.label if len(result.urls) == 1 else f"Playlist • {url[-11:]}"
@@ -510,6 +558,10 @@ class YouTubeDownloaderWindow(QMainWindow):
         detail = f"{fmt.upper()} • {quality}"
         if start or end:
             detail += f" • {start or '00:00'}–{end or 'fim'}"
+
+        if not self.cards:
+            self.empty_state.hide()
+
         card = QueueCard(label, fmt, detail)
         self.cards.append(card)
         self.queue_layout.insertWidget(self.queue_layout.count() - 1, card)
@@ -525,13 +577,17 @@ class YouTubeDownloaderWindow(QMainWindow):
         self._refresh_stats()
 
     def _completed(self, card: QueueCard) -> None:
-        card.mark_completed(); self.completed_count += 1; self.workers.pop(card, None)
+        card.mark_completed()
+        self.completed_count += 1
+        self.workers.pop(card, None)
 
     def _cancelled(self, card: QueueCard) -> None:
-        card.mark_cancelled(); self.workers.pop(card, None)
+        card.mark_cancelled()
+        self.workers.pop(card, None)
 
     def _failed(self, card: QueueCard, message: str) -> None:
-        card.mark_failed(message); self.workers.pop(card, None)
+        card.mark_failed(message)
+        self.workers.pop(card, None)
 
     def _refresh_stats(self) -> None:
         active = len(self.workers)
@@ -567,7 +623,8 @@ class YouTubeDownloaderWindow(QMainWindow):
         try:
             lines = [x.strip() for x in Path(path).read_text(encoding="utf-8").splitlines() if x.strip()]
         except OSError as exc:
-            QMessageBox.warning(self, "Erro ao ler arquivo", str(exc)); return
+            QMessageBox.warning(self, "Erro ao ler arquivo", str(exc))
+            return
         if not lines:
             return
         for value in lines[:200]:
@@ -589,7 +646,8 @@ class YouTubeDownloaderWindow(QMainWindow):
         try:
             concurrent = max(1, min(int(self.concurrent.text()), 8))
         except ValueError:
-            QMessageBox.warning(self, "Valor inválido", "Concorrência deve ser um número entre 1 e 8."); return
+            QMessageBox.warning(self, "Valor inválido", "Concorrência deve ser um número entre 1 e 8.")
+            return
         fmt = "mp3" if self.mp3.isChecked() else "mp4"
         quality = self.quality.text().strip() or ("192" if fmt == "mp3" else "1080p")
         self.config.update(
@@ -603,7 +661,10 @@ class YouTubeDownloaderWindow(QMainWindow):
         QMessageBox.information(self, "Preferências", "Configurações salvas localmente.")
 
     def _nav_hint(self, name: str) -> None:
-        self.statusBar().showMessage(f"{name.strip()} será ampliado em uma próxima etapa; a fila e configurações já são funcionais.", 4000)
+        self.statusBar().showMessage(
+            f"{name.strip()} será ampliado em uma próxima etapa; a fila e configurações já são funcionais.",
+            4000,
+        )
 
 
 def iniciar_app() -> None:
