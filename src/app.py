@@ -30,13 +30,19 @@ from PySide6.QtWidgets import (
 from .config import Config, validate_download_path
 from .downloader import DownloadSpec, Downloader, Progress, validate_clip
 from .history import HistoryStore
-from .resolver import LinkType, classificar_link, resolver_entrada
+from .resolver import (
+    LinkType,
+    classificar_link,
+    detectar_contexto_playlist,
+    resolver_entrada,
+)
 from .text_import import read_txt_entries
 from .ui import (
     C,
     StyledComboBox,
     ask_confirmation,
     choose_font_family,
+    choose_video_playlist_scope,
     display_path,
     human_datetime,
     make_nav_icon,
@@ -872,12 +878,24 @@ class YouTubeDownloaderWindow(QMainWindow):
     def _resolve_input(self) -> None:
         if self.resolve_busy or self._closing:
             return
-        value = self.input.text().strip()
-        if not value:
+        original = self.input.text().strip()
+        if not original:
             self.input.setFocus()
             return
+
+        context = detectar_contexto_playlist(original)
+        if context is not None:
+            choice = choose_video_playlist_scope(self)
+            if choice is None:
+                self.input.setFocus()
+                return
+            self.input.setText(
+                context.playlist_url if choice == "playlist" else context.video_url
+            )
+
         if not self._ensure_ffmpeg():
             return
+        value = self.input.text().strip()
         self._set_resolve_busy(True)
         worker = ResolveRunnable(value)
         worker.signals.resolved.connect(self._resolved_from_input)
@@ -1053,13 +1071,20 @@ class YouTubeDownloaderWindow(QMainWindow):
         value = QApplication.clipboard().text().strip()
         if not value or value == self.last_clipboard:
             return
+
         kind, normalized = classificar_link(value)
-        if kind not in {LinkType.DIRETO, LinkType.PLAYLIST} or normalized in self.seen_clipboard:
+        if kind not in {LinkType.DIRETO, LinkType.PLAYLIST}:
             self.last_clipboard = value
             return
+
+        dedupe_key = value if detectar_contexto_playlist(value) is not None else normalized
+        if dedupe_key in self.seen_clipboard:
+            self.last_clipboard = value
+            return
+
         self.last_clipboard = value
-        self.seen_clipboard.add(normalized)
-        self.input.setText(normalized)
+        self.seen_clipboard.add(dedupe_key)
+        self.input.setText(value)
         self._resolve_input()
 
     def _select_txt_file(self) -> None:
