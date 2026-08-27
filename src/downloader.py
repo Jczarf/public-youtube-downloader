@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event
@@ -7,6 +8,19 @@ from typing import Callable
 
 import yt_dlp
 from yt_dlp.utils import download_range_func
+
+
+SUPPORTED_COOKIE_BROWSERS = {
+    "brave",
+    "chrome",
+    "chromium",
+    "edge",
+    "firefox",
+    "opera",
+    "safari",
+    "vivaldi",
+    "whale",
+}
 
 
 @dataclass(frozen=True)
@@ -55,6 +69,48 @@ def validate_clip(start: str | None, end: str | None) -> tuple[float | None, flo
     return start_s, end_s
 
 
+def retry_sleep(attempt: int) -> float:
+    """Backoff curto e limitado para não martelar o servidor em retries."""
+
+    try:
+        number = max(1, int(attempt))
+    except (TypeError, ValueError):
+        number = 1
+    return float(min(2 ** (number - 1), 20))
+
+
+def configured_cookie_browser() -> str | None:
+    browser = os.getenv("YT_DLP_COOKIES_FROM_BROWSER", "").strip().lower()
+    if not browser:
+        return None
+    if browser not in SUPPORTED_COOKIE_BROWSERS:
+        supported = ", ".join(sorted(SUPPORTED_COOKIE_BROWSERS))
+        raise ValueError(
+            "Navegador inválido em YT_DLP_COOKIES_FROM_BROWSER. "
+            f"Use um destes valores: {supported}."
+        )
+    return browser
+
+
+def friendly_download_error(exc: Exception) -> str:
+    raw = str(exc).strip()
+    lowered = raw.lower()
+    auth_markers = (
+        "sign in to confirm you're not a bot",
+        "sign in to confirm you’re not a bot",
+        "cookies-from-browser",
+        "cookies for the authentication",
+    )
+    if any(marker in lowered for marker in auth_markers):
+        return (
+            "O YouTube pediu verificação da sessão. Feche o app e execute novamente "
+            "com os cookies do navegador que já está autenticado, por exemplo: "
+            "env YT_DLP_COOKIES_FROM_BROWSER=firefox ./run.sh. "
+            "O aplicativo só lê cookies quando essa variável é definida explicitamente."
+        )
+    return raw or "Falha no download."
+
+
 def build_options(spec: DownloadSpec, progress_hook: Callable[[dict], None]) -> dict:
     spec.destino.mkdir(parents=True, exist_ok=True)
     start_s, end_s = validate_clip(spec.tempo_inicio, spec.tempo_fim)
@@ -68,12 +124,24 @@ def build_options(spec: DownloadSpec, progress_hook: Callable[[dict], None]) -> 
         "noplaylist": True,
         "continuedl": True,
         "overwrites": False,
-        "retries": 3,
-        "fragment_retries": 3,
-        "concurrent_fragment_downloads": 4,
-        "socket_timeout": 20,
+        "retries": 10,
+        "fragment_retries": 10,
+        "extractor_retries": 3,
+        "file_access_retries": 3,
+        "retry_sleep_functions": {
+            "http": retry_sleep,
+            "fragment": retry_sleep,
+            "extractor": retry_sleep,
+        },
+        "concurrent_fragment_downloads": 1,
+        "sleep_interval_requests": 1.0,
+        "socket_timeout": 30,
         "progress_hooks": [progress_hook],
     }
+
+    browser = configured_cookie_browser()
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
 
     if spec.formato.lower() == "mp3":
         opts.update({
@@ -155,4 +223,4 @@ class Downloader:
         except Exception as exc:
             if self._cancel.is_set() or "cancelado" in str(exc).lower():
                 return False
-            raise
+            raise RuntimeError(friendly_download_error(exc)) from exc
