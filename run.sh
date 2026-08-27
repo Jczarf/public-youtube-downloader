@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ ! -d ".venv" ]; then
+if [ ! -x ".venv/bin/python" ]; then
   echo 'Ambiente virtual não encontrado. Execute ./install.sh primeiro.' >&2
   exit 1
 fi
 
-. .venv/bin/activate
-exec python main.py
+exec .venv/bin/python main.py
