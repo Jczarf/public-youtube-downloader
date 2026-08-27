@@ -8,8 +8,8 @@ Aplicação desktop de uso pessoal para organizar downloads de mídia do YouTube
 
 - interface desktop em **PySide6 / Qt 6**;
 - navegação real e exclusiva entre **Fila**, **Histórico** e **Listas TXT**;
-- fila visual com progresso, velocidade, conclusão, erro e cancelamento;
-- cancelamento também para jobs que ainda aguardam uma thread de download;
+- fila visual com estados separados de **aguardando**, **baixando**, **concluído**, **cancelado** e **erro**;
+- cancelamento imediato para jobs ainda aguardando uma thread e cancelamento cooperativo para jobs em execução;
 - downloads MP3 e MP4;
 - seletor de qualidade adequado ao formato;
 - recorte por intervalo de tempo;
@@ -22,6 +22,9 @@ Aplicação desktop de uso pessoal para organizar downloads de mídia do YouTube
 - histórico local de concluídos, erros e cancelamentos;
 - preferências persistidas em diretório XDG;
 - retomada/retries e downloads fragmentados pelo `yt-dlp`;
+- estados vazios próprios, sem scrollbars decorativas;
+- diálogos de confirmação/erro próprios e coerentes com o tema escuro;
+- feedback não bloqueante por mensagens internas sem alterar a geometria da janela;
 - CI com testes offline e smoke test da GUI em modo offscreen;
 - auditoria de segurança separada para a edição pública.
 
@@ -53,6 +56,8 @@ YouTube Downloader
 
 Não existe uma página separada de configurações: pasta, formato, qualidade, recorte e concorrência já ficam disponíveis no painel **Configuração rápida**, evitando duplicação de controles e caminhos desnecessários.
 
+O recorte é deliberadamente tratado como configuração **do próximo item**, e não como preferência permanente, para reduzir o risco de cortar downloads futuros por engano.
+
 ## Direção visual
 
 A GUI reproduz o estilo definido para o portfólio:
@@ -61,13 +66,17 @@ A GUI reproduz o estilo definido para o portfólio:
 - sidebar grafite;
 - cards com bordas suaves;
 - vermelho como cor de ação e seleção;
-- verde para estados positivos;
+- verde somente para estados positivos/ativos;
 - azul para informação de ambiente;
-- seletor de qualidade estilizado;
+- seletor de qualidade com chevron desenhado pela própria aplicação;
 - recorte agrupado em um único card;
 - seletor compacto de pasta;
 - slider visual de concorrência;
-- estados vazios próprios em vez de widgets com aparência nativa clara.
+- ícones principais desenhados de forma vetorial para reduzir diferenças entre fontes Linux;
+- caminhos do diretório pessoal abreviados como `~/...` na interface;
+- datas do histórico exibidas em formato legível;
+- diálogos escuros próprios, sem depender do `QMessageBox` nativo;
+- estados vazios fora de áreas roláveis, evitando barras de rolagem fantasmas.
 
 A intenção é manter uma aparência de produto desktop sem esconder o estado real do projeto: somente controles com comportamento implementado permanecem expostos.
 
@@ -98,6 +107,8 @@ Histórico / preferências
 
 Resolução de pesquisas e playlists não ocupa as vagas configuradas para downloads. Isso evita que tarefas de metadados reduzam artificialmente a concorrência das transferências.
 
+A camada visual comum fica em `src/ui.py`, que centraliza paleta, fonte de fallback, ícones vetoriais, combo estilizado e diálogos temáticos. Isso evita repetir correções de aparência em cada tela.
+
 ## Melhorias aplicadas na edição pública
 
 - substituição da GUI legada em CustomTkinter por PySide6;
@@ -112,13 +123,16 @@ Resolução de pesquisas e playlists não ocupa as vagas configuradas para downl
 - configuração salva de forma atômica;
 - histórico salvo de forma atômica;
 - cancelamento de jobs pendentes e em execução;
+- contadores da fila baseados em estados reais, e não apenas na quantidade de workers;
+- bloqueio do botão de adicionar durante resolução para impedir envios duplicados acidentais;
 - pools separados para metadados e downloads;
 - limite de concorrência entre 1 e 8 jobs;
 - validação de recortes antes de iniciar o download;
 - nomes de saída incluem o ID do vídeo para reduzir colisões;
 - instalação e execução não dependem da ativação manual do virtualenv;
 - monitor de clipboard desligado por padrão;
-- testes de classificação, recorte, persistência, navegação e controles principais.
+- feedback visual consistente para foco, hover, disabled e seleção;
+- testes de classificação, recorte, persistência, navegação, estados vazios, scrollbars e controles principais.
 
 ## Instalação
 
@@ -230,6 +244,8 @@ Arquivos baixados, listas pessoais, bancos, logs e temporários permanecem fora 
 
 O GitHub Actions também compila o projeto e instancia a GUI com `QT_QPA_PLATFORM=offscreen`.
 
+Os testes de interface verificam, entre outros pontos, exclusividade da navegação, estado do clipboard, seletor de qualidade, política das scrollbars, estados vazios e existência dos diálogos temáticos. Eles complementam, mas não substituem, inspeção visual em um desktop Linux real.
+
 ## Segurança e privacidade
 
 - clipboard desligado por padrão;
@@ -237,6 +253,7 @@ O GitHub Actions também compila o projeto e instancia a GUI com `QT_QPA_PLATFOR
 - TLS do `yt-dlp` não é desativado;
 - URLs externas ao YouTube são rejeitadas;
 - arquivos pessoais e downloads ficam fora do repositório;
+- caminhos pessoais são abreviados na interface sempre que possível;
 - preferências e histórico são locais;
 - scanner dedicado verifica a edição pública no CI.
 
@@ -248,7 +265,7 @@ Veja também [`SECURITY.md`](SECURITY.md).
 - FFmpeg é necessário para conversão, merge e recortes;
 - a baseline principal do CI usa Python 3.12;
 - o CI headless não substitui inspeção visual em Linux desktop real;
-- a qualidade visual pode variar ligeiramente conforme fonte, compositor, escala e tema do desktop;
+- pequenas diferenças de renderização ainda podem existir conforme compositor, escala e disponibilidade das fontes do sistema;
 - o projeto é uma ferramenta pessoal em evolução, não um produto comercial ou serviço de download.
 
 ## Status
