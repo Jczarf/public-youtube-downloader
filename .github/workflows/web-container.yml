@@ -1,0 +1,66 @@
+name: Web Container
+
+on:
+  push:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "compose.web.yml"
+      - "requirements-web.txt"
+      - "web/**"
+      - "src/resolver.py"
+      - ".github/workflows/web-container.yml"
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "compose.web.yml"
+      - "requirements-web.txt"
+      - "web/**"
+      - "src/resolver.py"
+      - ".github/workflows/web-container.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Build web image
+        run: docker build --tag mediaflow-web:test .
+
+      - name: Start container
+        run: |
+          docker run -d             --name mediaflow-web             --publish 127.0.0.1:8000:8000             --tmpfs /tmp:size=256m             mediaflow-web:test
+
+      - name: Smoke test
+        run: |
+          set -e
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/health > /tmp/health.json; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs mediaflow-web
+              exit 1
+            fi
+            sleep 1
+          done
+
+          grep -q '"status":"ok"' /tmp/health.json
+          curl --fail --silent http://127.0.0.1:8000/ | grep -q "MediaFlow"
+          docker exec mediaflow-web deno --version
+          docker exec mediaflow-web ffmpeg -version | head -n 1
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs mediaflow-web || true
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f mediaflow-web || true
