@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     environment:
       WEB_FFMPEG_CONCURRENCY: "${WEB_FFMPEG_CONCURRENCY:-2}"
+      WEB_RESOLVE_CONCURRENCY: "${WEB_RESOLVE_CONCURRENCY:-4}"
+      WEB_RELAY_CONCURRENCY: "${WEB_RELAY_CONCURRENCY:-8}"
+      WEB_MAX_DURATION_SECONDS: "${WEB_MAX_DURATION_SECONDS:-7200}"
     ports:
       - "${WEB_PORT:-8000}:8000"
     tmpfs:
