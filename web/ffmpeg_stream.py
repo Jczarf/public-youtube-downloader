@@ -5,7 +5,7 @@ import os
 import shutil
 from collections.abc import AsyncIterator
 
-from web.service import MediaCandidate
+from web.service import MediaCandidate, server_merge_eligible
 
 
 def _concurrency() -> int:
@@ -28,17 +28,6 @@ DROP_UPSTREAM_HEADERS = {
 
 def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
-
-
-def server_merge_eligible(video: MediaCandidate, audio: MediaCandidate) -> bool:
-    return (
-        video.has_video
-        and not video.has_audio
-        and video.ext.lower() == "mp4"
-        and audio.has_audio
-        and not audio.has_video
-        and audio.ext.lower() in {"m4a", "mp4"}
-    )
 
 
 def _header_blob(candidate: MediaCandidate) -> str:
