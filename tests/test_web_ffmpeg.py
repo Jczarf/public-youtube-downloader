@@ -17,7 +17,7 @@ def media(
         protocol="https",
         url=f"https://r1---sn.example.googlevideo.com/{id}",
         http_headers=headers or {"User-Agent": "test"},
-        filesize=None,
+        filesize=4 * 1024 * 1024,
         height=1080 if video else None,
         abr=128.0 if audio else None,
         vcodec="avc1" if video else "none",
