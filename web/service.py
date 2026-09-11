@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import yt_dlp
 
 from src.resolver import LinkType, classificar_link
+from web.runtime import max_duration_seconds
 
 
 SESSION_TTL_SECONDS = 10 * 60
@@ -116,6 +117,14 @@ def resolve_media(raw_url: str) -> ResolveSession:
     if not isinstance(info, dict):
         raise RuntimeError("O YouTube não retornou metadados válidos.")
 
+    duration = _safe_float(info.get("duration"))
+    duration_limit = max_duration_seconds()
+    if duration_limit and duration and duration > duration_limit:
+        limit_minutes = duration_limit // 60
+        raise ValueError(
+            f"Este vídeo excede o limite atual de {limit_minutes} minutos."
+        )
+
     candidates: dict[str, MediaCandidate] = {}
     for fmt in info.get("formats") or []:
         if not isinstance(fmt, dict):
@@ -160,7 +169,7 @@ def resolve_media(raw_url: str) -> ResolveSession:
         title=str(info.get("title") or "Sem título"),
         webpage_url=str(info.get("webpage_url") or normalized),
         thumbnail=info.get("thumbnail") if isinstance(info.get("thumbnail"), str) else None,
-        duration=_safe_float(info.get("duration")),
+        duration=duration,
         candidates=candidates,
     )
     STORE.put(session)
