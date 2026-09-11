@@ -1,12 +1,12 @@
-# Deploy web — Coolify / VPS
+# Deploy web — staging seguro no Coolify / VPS
 
 Este documento descreve o primeiro deploy de **staging** do MVP web.
 
-> Não exponha a aplicação para tráfego público amplo antes de adicionar rate limit e proteção antiabuso. O objetivo inicial é validar o comportamento real do YouTube a partir do IP da VPS.
+> O staging não deve nascer aberto ao público. Primeiro valide comportamento, consumo e abuso atrás de Cloudflare Access, VPN, allowlist ou outra camada de acesso restrito.
 
 ## Fonte
 
-No Coolify, crie uma nova aplicação a partir deste repositório e use:
+No Coolify:
 
 ```text
 Branch: web-mvp-phase1
@@ -15,28 +15,73 @@ Dockerfile: /Dockerfile
 Porta interna: 8000
 ```
 
-A imagem inclui:
+A imagem inclui Python 3.12, yt-dlp + yt-dlp-ejs, Deno, FFmpeg, FastAPI/Uvicorn e a PWA com Mediabunny lazy-loaded.
 
-- Python 3.12;
-- yt-dlp + yt-dlp-ejs;
-- Deno;
-- FFmpeg;
-- FastAPI/Uvicorn;
-- PWA estática;
-- bundle Mediabunny para merge local no navegador.
+As imagens base são fixadas por digest e o frontend usa `package-lock.json` + `npm ci`.
 
-## Variáveis
+## Variáveis obrigatórias
 
-Comece somente com:
+Substitua o hostname de exemplo pelo domínio real do staging:
 
 ```env
+WEB_ALLOWED_HOSTS=staging.seudominio.com
+WEB_ENABLE_DOCS=0
+
 WEB_FFMPEG_CONCURRENCY=2
+WEB_FFMPEG_TIMEOUT_SECONDS=3600
 WEB_RESOLVE_CONCURRENCY=4
 WEB_RELAY_CONCURRENCY=8
+
+WEB_ACTIVE_RESOLVE_PER_CLIENT=1
+WEB_ACTIVE_PROCESS_PER_CLIENT=1
+WEB_ACTIVE_RELAY_PER_CLIENT=6
+
+WEB_RATE_RESOLVE_PER_MINUTE=8
+WEB_RATE_PLAN_PER_MINUTE=30
+WEB_RATE_PROCESS_PER_MINUTE=6
+WEB_RATE_RELAY_PER_MINUTE=180
+WEB_RATE_DIRECT_PER_MINUTE=60
+
 WEB_MAX_DURATION_SECONDS=7200
+WEB_MAX_MEDIA_BYTES=1073741824
+WEB_MAX_SESSIONS=256
+WEB_MAX_CANDIDATES_PER_SESSION=64
 ```
 
 Não coloque cookies do YouTube no primeiro teste.
+
+### Proxy e IP real
+
+Por padrão a aplicação **não confia em X-Forwarded-For**. Isso evita spoofing.
+
+Atrás do Traefik/Coolify, sem configurar proxy confiável, todos os usuários podem ser vistos como o IP do proxy. Para habilitar IP real, descubra a sub-rede exata usada pelo proxy e configure somente essa rede:
+
+```env
+WEB_TRUSTED_PROXY_CIDRS=172.18.0.0/24
+```
+
+O valor acima é apenas exemplo. **Não use uma faixa ampla por conveniência** e não use `0.0.0.0/0`.
+
+### HTTPS e HSTS
+
+Primeiro confirme que o domínio está funcionando exclusivamente por HTTPS. Depois habilite:
+
+```env
+WEB_ENABLE_HSTS=1
+```
+
+Não habilite HSTS durante testes em hostname que ainda precise funcionar por HTTP.
+
+## Proteção do staging
+
+Antes do primeiro teste remoto, coloque a aplicação atrás de pelo menos uma destas camadas:
+
+- Cloudflare Access;
+- VPN/Tailscale;
+- allowlist de IP;
+- autenticação no proxy reverso.
+
+Isso evita que scanners automatizados descubram um serviço experimental antes da validação.
 
 ## Healthcheck
 
@@ -47,79 +92,97 @@ GET /health
 Resposta esperada:
 
 ```json
-{"status":"ok","version":"0.3.0"}
+{"status":"ok"}
 ```
+
+Swagger/OpenAPI permanece desabilitado por padrão.
 
 ## Recursos iniciais
 
-Para staging:
+Use:
 
 - 1 instância;
-- 1 processo Uvicorn;
-- `WEB_FFMPEG_CONCURRENCY=2`;
-- no máximo 4 resoluções simultâneas;
-- no máximo 8 requests de relay ativos;
-- vídeos limitados a 2 horas (`7200` s) no staging;
+- 1 worker Uvicorn;
+- 1 GiB de memória como limite inicial;
+- 2 CPUs como teto inicial;
+- no máximo 128 PIDs;
+- filesystem somente leitura;
+- `/tmp` em tmpfs limitado;
 - sem Redis;
 - sem PostgreSQL;
 - sem armazenamento persistente.
 
-A sessão de resolução é mantida em memória. Por isso **não aumente o número de workers Uvicorn nesta fase**: uma requisição `/plan` ou `/stream` precisa chegar ao mesmo processo que criou a sessão.
+A sessão de resolução é mantida em memória. Não aumente os workers Uvicorn nesta fase: `/plan`, `/stream` e processamento precisam alcançar o processo que criou a sessão.
 
-Quando houver necessidade de escala horizontal, a sessão efêmera deverá migrar para Redis ou ser substituída por tokens de sessão assinados.
+Escala horizontal exige estado/limites compartilhados, por exemplo Redis ou outra arquitetura de capability tokens.
+
+## Regras de rede
+
+- exponha apenas o proxy reverso à Internet;
+- não publique a porta 8000 diretamente no firewall da VPS;
+- não monte `/var/run/docker.sock` no container;
+- não monte diretórios do host desnecessários;
+- mantenha SSH administrativo restrito por chave/VPN/firewall;
+- banco de dados futuro deve ficar em rede privada, nunca com porta pública por padrão.
 
 ## Testes de staging
 
-Execute, nesta ordem:
+Execute nesta ordem:
 
-1. abrir a página principal no desktop;
-2. abrir no Android/iOS;
-3. testar um vídeo público curto em 360p/720p;
-4. testar direct-first;
-5. testar o botão de modo compatível/relay;
-6. testar 1080p, que normalmente exige faixas adaptativas;
-7. confirmar em um vídeo pequeno que aparece a rota de processamento no dispositivo;
-8. testar o fallback automático para FFmpeg no servidor;
-9. testar MP3;
-10. repetir com duas operações simultâneas;
-11. observar CPU, RAM e tráfego;
-12. registrar erros HTTP 403/429 do YouTube.
+1. confirmar que acesso sem a camada privada/Access é bloqueado;
+2. confirmar HTTPS;
+3. testar Host header inválido;
+4. confirmar que `/docs` e `/openapi.json` retornam 404;
+5. abrir a PWA no desktop e celular;
+6. testar vídeo curto 360p/720p;
+7. testar direct-first e fallback relay;
+8. testar 1080p adaptativo;
+9. testar merge local pequeno;
+10. forçar fallback FFmpeg;
+11. testar MP3;
+12. testar um vídeo acima do limite e confirmar recusa;
+13. testar excesso de requisições e confirmar 429/503;
+14. repetir operações concorrentes;
+15. observar CPU, RAM, PIDs, conexões e tráfego;
+16. registrar respostas 403/429 do YouTube.
 
-## Métricas mínimas a registrar
+## Métricas mínimas
 
-Antes de monetização, precisamos saber:
+Registre, sem armazenar URLs assinadas nem IDs de sessão completos:
 
 ```text
-resoluções solicitadas
-direct-first tentado
-direct-first efetivamente útil
+resoluções
+resoluções recusadas por limite
+429 por endpoint
+503 por capacidade
+direct-first tentado/sucesso
 relay utilizado
-merge local utilizado
-merge local falhou
-FFmpeg merge utilizado
-MP3 utilizado
+merge local sucesso/falha
+FFmpeg merge
+MP3
 tempo de resolução
 bytes transmitidos
-HTTP 403
-HTTP 429
+HTTP 403/429 upstream
 falhas do FFmpeg
+uso máximo de CPU/RAM/PIDs
 ```
 
-Essas métricas vão determinar se vale investir primeiro em processamento local no navegador, novos workers ou otimização de rede.
+## Antes de abrir ao público
 
-## Observações de segurança
+Ainda é obrigatório adicionar proteção distribuída de edge. O limitador interno é uma segunda camada, não substitui WAF/CDN:
 
-O MVP já evita open proxy e não expõe URLs reais do CDN no JSON. Ainda faltam, antes de abrir ao público:
-
-- rate limit por IP/sessão;
-- limite de tamanho estimado;
-- limite global de streams já existe no processo, mas ainda falta coordenação distribuída quando houver múltiplas instâncias;
-- proteção de origem/proxy confiável;
-- Cloudflare Turnstile ou mecanismo equivalente;
+- rate limiting no Cloudflare ou equivalente;
+- bot protection / Turnstile quando fizer sentido;
+- alertas de CPU, RAM, banda e egress;
+- limite de custo/transferência no provedor se disponível;
 - telemetria de abuso;
-- timeouts e quotas por plano;
-- política de privacidade/termos de uso.
+- política de privacidade e termos;
+- processo de atualização de yt-dlp, FFmpeg, imagens base e dependências.
+
+Não crie contas, planos ou pagamentos antes de medir o custo real por download e a taxa de bloqueio do YouTube.
 
 ## Atualização
 
-O deploy deve ser construído novamente a partir do Git commit. Não instale dependências manualmente dentro do container em produção.
+Deploys devem ser reconstruídos a partir do Git commit. Não instale pacotes manualmente dentro do container em produção.
+
+Quando atualizar uma imagem base fixada por digest, trate a alteração como atualização de dependência: rode CI, Trivy, Security Audit e smoke tests antes de promover.
