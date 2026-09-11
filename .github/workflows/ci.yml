@@ -39,6 +39,8 @@ jobs:
         run: |
           npm install --no-package-lock --no-fund --no-audit
           npm run build:web
+          test -s web/static/app.js
+          find web/static/chunks -type f -name '*.js' -print -quit | grep -q .
       - name: Compile
         run: python -m compileall -q src web main.py
       - name: Tests
