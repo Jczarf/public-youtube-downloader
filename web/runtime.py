@@ -92,3 +92,15 @@ def max_media_bytes() -> int:
         maximum=20 * 1024 * 1024 * 1024,
         allow_zero=True,
     )
+
+
+def ffmpeg_timeout_seconds() -> int:
+    """Maximum wall-clock time for one server-side FFmpeg operation."""
+
+    return env_int(
+        "WEB_FFMPEG_TIMEOUT_SECONDS",
+        3600,
+        minimum=60,
+        maximum=4 * 60 * 60,
+        allow_zero=True,
+    )
