@@ -190,6 +190,17 @@ def direct_eligible(candidate: MediaCandidate) -> bool:
     return not bool(header_names & SENSITIVE_DIRECT_HEADERS)
 
 
+def server_merge_eligible(video: MediaCandidate, audio: MediaCandidate) -> bool:
+    return (
+        video.has_video
+        and not video.has_audio
+        and video.ext.lower() == "mp4"
+        and audio.has_audio
+        and not audio.has_video
+        and audio.ext.lower() in {"m4a", "mp4"}
+    )
+
+
 def _candidate_payload(session: ResolveSession, candidate: MediaCandidate) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": candidate.id,
@@ -332,6 +343,10 @@ def build_download_plan(
                 "type": "relay",
                 "url": source["relay_url"],
             },
+            "conversion": {
+                "mp3_available": True,
+                "mp3_url": f"/api/v1/convert/audio/{session.id}/{audio.id}",
+            },
         }
 
     progressive = [item for item in candidates if item.progressive]
@@ -392,8 +407,12 @@ def build_download_plan(
             },
             "fallback": {
                 "type": "server-ffmpeg",
-                "available": False,
-                "planned": True,
+                "available": server_merge_eligible(adaptive_video, adaptive_audio),
+                "url": (
+                    f"/api/v1/merge/{session.id}/{adaptive_video.id}/{adaptive_audio.id}"
+                    if server_merge_eligible(adaptive_video, adaptive_audio)
+                    else None
+                ),
             },
         }
 
