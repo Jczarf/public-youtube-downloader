@@ -195,7 +195,8 @@ def test_plan_uses_browser_merge_when_adaptive_has_better_quality():
     assert plan["quality"] == 1080
     assert plan["sources"]["video"]["id"] == "137"
     assert plan["sources"]["audio"]["id"] == "140"
-    assert plan["fallback"]["planned"] is True
+    assert plan["fallback"]["available"] is True
+    assert plan["fallback"]["url"] == "/api/v1/merge/session1/137/140"
 
 
 def test_audio_plan_prefers_m4a_and_marks_mp3_conversion():
@@ -221,3 +222,5 @@ def test_audio_plan_prefers_m4a_and_marks_mp3_conversion():
     assert plan["source"]["id"] == "140"
     assert plan["output"]["container"] == "m4a"
     assert plan["output"]["conversion_required_for_mp3"] is True
+    assert plan["conversion"]["mp3_available"] is True
+    assert plan["conversion"]["mp3_url"] == "/api/v1/convert/audio/session1/140"
