@@ -57,6 +57,7 @@ jobs:
 
           grep -q '"status":"ok"' /tmp/health.json
           curl --fail --silent http://127.0.0.1:8000/ | grep -q "MediaFlow"
+          docker exec mediaflow-web sh -c "test -s /app/web/static/app.js && find /app/web/static/chunks -type f -name '*.js' -print -quit | grep -q ."
           docker exec mediaflow-web deno --version
           docker exec mediaflow-web ffmpeg -version | head -n 1
 
