@@ -10,7 +10,7 @@ from urllib.parse import quote, urljoin
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -30,11 +30,13 @@ from web.runtime import (
 )
 from web.security import (
     ACTIVE_CLIENTS,
+    BodyLimitMiddleware,
     active_limit,
     add_security_headers,
     allowed_hosts,
     client_ip,
     env_bool,
+    is_cross_site_browser_request,
     rate_limit_response,
 )
 from web.service import (
@@ -45,6 +47,7 @@ from web.service import (
     public_session,
     resolve_media,
     server_merge_eligible,
+    server_process_eligible,
 )
 
 
@@ -73,15 +76,28 @@ app.add_middleware(
     allowed_hosts=allowed_hosts(),
     www_redirect=False,
 )
+app.add_middleware(BodyLimitMiddleware, max_body_bytes=16 * 1024)
 
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
-    limited = await rate_limit_response(request)
-    if limited is not None:
-        response = limited
+    if request.method.upper() not in {"GET", "HEAD", "POST"}:
+        response = JSONResponse(
+            status_code=405,
+            content={"detail": "Metodo HTTP nao permitido."},
+            headers={"Allow": "GET, HEAD, POST"},
+        )
+    elif is_cross_site_browser_request(request):
+        response = JSONResponse(
+            status_code=403,
+            content={"detail": "Requisicao cross-site recusada."},
+        )
     else:
-        response = await call_next(request)
+        limited = await rate_limit_response(request)
+        if limited is not None:
+            response = limited
+        else:
+            response = await call_next(request)
 
     add_security_headers(response, hsts=ENABLE_HSTS)
 
@@ -356,10 +372,10 @@ async def convert_audio(
     bitrate: int = Query(default=192, ge=64, le=320),
 ) -> StreamingResponse:
     session, audio = _session_and_candidate(session_id, candidate_id)
-    if not audio.has_audio:
+    if not audio.has_audio or not server_process_eligible(audio):
         raise HTTPException(
             status_code=422,
-            detail="O formato selecionado não possui áudio.",
+            detail="O formato selecionado nao e elegivel para processamento.",
         )
     if not ffmpeg_available():
         raise HTTPException(
@@ -491,8 +507,14 @@ async def stream_media(
         )
 
     async def body() -> AsyncIterator[bytes]:
+        streamed = 0
+        limit = max_media_bytes()
         try:
             async for chunk in response.aiter_bytes(256 * 1024):
+                streamed += len(chunk)
+                if limit and streamed > limit:
+                    LOGGER.warning("relay byte limit reached")
+                    break
                 yield chunk
         finally:
             await response.aclose()
