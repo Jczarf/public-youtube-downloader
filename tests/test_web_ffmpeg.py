@@ -55,12 +55,12 @@ def test_crlf_header_is_not_forwarded_to_ffmpeg():
         ext="mp4",
         video=True,
         audio=False,
-        headers={"X-Good": "ok", "X-Bad": "ok\r\nInjected: yes"},
+        headers={"User-Agent": "ok", "X-Bad": "ok\r\nInjected: yes"},
     )
     audio = media(id="140", ext="m4a", video=False, audio=True)
 
     command = merge_mp4_command(video, audio)
     joined = "\n".join(command)
 
-    assert "X-Good: ok" in joined
+    assert "User-Agent: ok" in joined
     assert "Injected: yes" not in joined
