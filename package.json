@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build:web": "esbuild web/frontend.js --bundle --format=esm --platform=browser --target=es2022 --minify --outfile=web/static/app.js"
+    "build:web": "rm -rf web/static/chunks && esbuild web/frontend.js --bundle --format=esm --splitting --platform=browser --target=es2022 --minify --outdir=web/static --entry-names=app --chunk-names=chunks/[name]-[hash]"
   },
   "dependencies": {
     "mediabunny": "1.56.1"
