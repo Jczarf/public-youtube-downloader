@@ -51,9 +51,16 @@ RELAY_CONCURRENCY = env_int(
     minimum=1,
     maximum=64,
 )
+PROCESS_CONCURRENCY = env_int(
+    "WEB_FFMPEG_CONCURRENCY",
+    2,
+    minimum=1,
+    maximum=8,
+)
 
 RESOLVE_SLOTS = asyncio.Semaphore(RESOLVE_CONCURRENCY)
 RELAY_SLOTS = asyncio.Semaphore(RELAY_CONCURRENCY)
+PROCESS_SLOTS = asyncio.Semaphore(PROCESS_CONCURRENCY)
 
 
 async def acquire_slot(
