@@ -17,4 +17,9 @@ fi
 npm ci --ignore-scripts --no-fund --no-audit
 npm run build:web
 
-exec .venv/bin/python -m uvicorn web.app:app   --host "$WEB_BIND_HOST"   --port "${PORT:-8000}"   --no-server-header
+exec .venv/bin/python -m uvicorn web.app:app \
+  --host "$WEB_BIND_HOST" \
+  --port "${PORT:-8000}" \
+  --no-server-header \
+  --no-access-log \
+  --no-access-log
