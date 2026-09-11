@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 import re
 from typing import Literal
 from urllib.parse import quote
@@ -8,6 +9,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -227,3 +229,7 @@ async def stream_media(session_id: str, candidate_id: str, request: Request) -> 
         media_type=content_type,
         headers=passthrough,
     )
+
+
+STATIC_DIR = Path(__file__).with_name("static")
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="web-ui")
