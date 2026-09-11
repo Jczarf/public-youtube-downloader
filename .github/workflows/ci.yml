@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-web.txt pytest
+          python -m pip install -r requirements.txt -r requirements-web.txt pytest
           python -m pip check
       - name: Compile
         run: python -m compileall -q src web main.py
