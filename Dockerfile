@@ -3,7 +3,7 @@ FROM node:24-bookworm-slim AS web-build
 WORKDIR /build
 
 COPY package.json package-lock.json ./
-RUN npm ci --no-fund --no-audit
+RUN npm ci --ignore-scripts --no-fund --no-audit
 
 COPY web/frontend.js ./web/frontend.js
 COPY web/static ./web/static
