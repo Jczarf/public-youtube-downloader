@@ -193,7 +193,7 @@ def _response_exceeds_size_limit(response: httpx.Response) -> bool:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "version": app.version}
+    return {"status": "ok"}
 
 
 @app.post("/api/v1/resolve")
@@ -447,6 +447,7 @@ async def stream_media(
     try:
         client = httpx.AsyncClient(
             follow_redirects=False,
+            trust_env=False,
             timeout=httpx.Timeout(
                 connect=10.0,
                 read=None,
