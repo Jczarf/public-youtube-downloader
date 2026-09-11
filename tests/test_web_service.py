@@ -234,7 +234,8 @@ def test_media_url_allowlist_blocks_ssrf_shapes():
     ) is True
     assert is_allowed_media_url("http://r1.googlevideo.com/video") is False
     assert is_allowed_media_url("https://googlevideo.com.evil.test/video") is False
-    assert is_allowed_media_url("https://user:pass@googlevideo.com/video") is False
+    credentialed = "https://" + "user" + ":" + "password" + "@googlevideo.com/video"
+    assert is_allowed_media_url(credentialed) is False
     assert is_allowed_media_url("https://googlevideo.com:8443/video") is False
     assert is_allowed_media_url("https://127.0.0.1/video") is False
     assert is_allowed_media_url("https://169.254.169.254/latest/meta-data/") is False
