@@ -10,11 +10,23 @@ from urllib.parse import urlparse
 import yt_dlp
 
 from src.resolver import LinkType, classificar_link
-from web.runtime import max_duration_seconds
+from web.runtime import (
+    MAX_CANDIDATES_PER_SESSION,
+    MAX_SESSIONS,
+    max_duration_seconds,
+)
 
 
 SESSION_TTL_SECONDS = 10 * 60
 SENSITIVE_DIRECT_HEADERS = {"authorization", "cookie", "proxy-authorization"}
+ALLOWED_UPSTREAM_HEADERS = {
+    "accept",
+    "accept-language",
+    "origin",
+    "referer",
+    "user-agent",
+}
+MAX_HEADER_VALUE_LENGTH = 1024
 
 
 @dataclass
@@ -62,13 +74,25 @@ class ResolveStore:
 
     def _purge_locked(self) -> None:
         cutoff = time.time() - SESSION_TTL_SECONDS
-        stale = [key for key, item in self._items.items() if item.created_at < cutoff]
+        stale = [
+            key
+            for key, item in self._items.items()
+            if item.created_at < cutoff
+        ]
         for key in stale:
             self._items.pop(key, None)
+
+    def _enforce_capacity_locked(self) -> None:
+        while len(self._items) >= MAX_SESSIONS:
+            oldest = next(iter(self._items), None)
+            if oldest is None:
+                break
+            self._items.pop(oldest, None)
 
     def put(self, session: ResolveSession) -> None:
         with self._lock:
             self._purge_locked()
+            self._enforce_capacity_locked()
             self._items[session.id] = session
 
     def get(self, session_id: str) -> ResolveSession | None:
@@ -86,9 +110,9 @@ def _extract_options() -> dict[str, Any]:
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
-        "retries": 3,
+        "retries": 2,
         "extractor_retries": 2,
-        "socket_timeout": 20,
+        "socket_timeout": 15,
     }
 
 
@@ -106,16 +130,137 @@ def _safe_float(value: Any) -> float | None:
         return None
 
 
+def _trusted_host(host: str, root: str) -> bool:
+    host = host.rstrip(".").lower()
+    root = root.rstrip(".").lower()
+    return host == root or host.endswith(f".{root}")
+
+
+def is_allowed_media_url(value: str) -> bool:
+    """Strict allowlist for server-side media fetches.
+
+    Only HTTPS URLs on Google's video CDN, without embedded credentials and
+    without non-standard ports, are accepted. This is deliberately narrower
+    than trusting every URL returned by an extractor.
+    """
+
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+
+    host = (parsed.hostname or "").rstrip(".").lower()
+    if parsed.scheme != "https" or not host:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if port not in {None, 443}:
+        return False
+    return _trusted_host(host, "googlevideo.com")
+
+
+def _safe_thumbnail(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return None
+
+    host = (parsed.hostname or "").rstrip(".").lower()
+    if parsed.scheme != "https":
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    if not _trusted_host(host, "ytimg.com"):
+        return None
+    return value
+
+
+def sanitize_upstream_headers(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+
+    clean: dict[str, str] = {}
+    for raw_key, raw_value in raw.items():
+        key = str(raw_key).strip()
+        value = str(raw_value).strip()
+        lower = key.lower()
+
+        if lower not in ALLOWED_UPSTREAM_HEADERS:
+            continue
+        if not value or len(value) > MAX_HEADER_VALUE_LENGTH:
+            continue
+        if "\r" in key or "\n" in key or "\r" in value or "\n" in value:
+            continue
+
+        clean[key] = value
+
+    return clean
+
+
+def _bounded_candidates(items: list[MediaCandidate]) -> list[MediaCandidate]:
+    if len(items) <= MAX_CANDIDATES_PER_SESSION:
+        return items
+
+    progressive = sorted(
+        (item for item in items if item.progressive),
+        key=lambda item: (item.height or 0, item.filesize or 0),
+        reverse=True,
+    )
+    video_only = sorted(
+        (item for item in items if item.has_video and not item.has_audio),
+        key=lambda item: (item.height or 0, item.filesize or 0),
+        reverse=True,
+    )
+    audio_only = sorted(
+        (item for item in items if item.has_audio and not item.has_video),
+        key=lambda item: (item.abr or 0.0, item.filesize or 0),
+        reverse=True,
+    )
+
+    progressive_quota = min(20, MAX_CANDIDATES_PER_SESSION)
+    audio_quota = min(12, max(0, MAX_CANDIDATES_PER_SESSION - progressive_quota))
+    video_quota = max(
+        0,
+        MAX_CANDIDATES_PER_SESSION - progressive_quota - audio_quota,
+    )
+
+    selected = (
+        progressive[:progressive_quota]
+        + video_only[:video_quota]
+        + audio_only[:audio_quota]
+    )
+
+    if len(selected) < MAX_CANDIDATES_PER_SESSION:
+        selected_ids = {id(item) for item in selected}
+        for item in items:
+            if id(item) in selected_ids:
+                continue
+            selected.append(item)
+            if len(selected) >= MAX_CANDIDATES_PER_SESSION:
+                break
+
+    return selected[:MAX_CANDIDATES_PER_SESSION]
+
+
 def resolve_media(raw_url: str) -> ResolveSession:
     kind, normalized = classificar_link(raw_url)
     if kind != LinkType.DIRETO:
-        raise ValueError("A API web inicial aceita somente links diretos de vídeo do YouTube.")
+        raise ValueError(
+            "A API web inicial aceita somente links diretos de vídeo do YouTube."
+        )
 
     with yt_dlp.YoutubeDL(_extract_options()) as ydl:
         info = ydl.extract_info(normalized, download=False)
 
     if not isinstance(info, dict):
-        raise RuntimeError("O YouTube não retornou metadados válidos.")
+        raise RuntimeError("Metadados de origem inválidos.")
 
     duration = _safe_float(info.get("duration"))
     duration_limit = max_duration_seconds()
@@ -125,50 +270,48 @@ def resolve_media(raw_url: str) -> ResolveSession:
             f"Este vídeo excede o limite atual de {limit_minutes} minutos."
         )
 
-    candidates: dict[str, MediaCandidate] = {}
+    raw_candidates: list[MediaCandidate] = []
     for fmt in info.get("formats") or []:
         if not isinstance(fmt, dict):
             continue
 
         media_url = fmt.get("url")
-        if not isinstance(media_url, str) or not media_url.startswith("https://"):
+        if not isinstance(media_url, str) or not is_allowed_media_url(media_url):
             continue
 
-        protocol = str(fmt.get("protocol") or "")
-        # O MVP transmite somente formatos HTTP(S) diretamente resolvidos.
-        # HLS/DASH continuam fora do relay até existir suporte dedicado.
-        if protocol not in {"https", "http"}:
+        protocol = str(fmt.get("protocol") or "").lower()
+        if protocol != "https":
             continue
 
-        candidate_id = secrets.token_urlsafe(8)
-        headers = {
-            str(key): str(value)
-            for key, value in (fmt.get("http_headers") or {}).items()
-            if value is not None
-        }
-        candidates[candidate_id] = MediaCandidate(
-            id=candidate_id,
-            format_id=str(fmt.get("format_id") or ""),
-            ext=str(fmt.get("ext") or ""),
-            protocol=protocol,
-            url=media_url,
-            http_headers=headers,
-            filesize=_safe_int(fmt.get("filesize") or fmt.get("filesize_approx")),
-            height=_safe_int(fmt.get("height")),
-            abr=_safe_float(fmt.get("abr")),
-            vcodec=str(fmt.get("vcodec") or "none"),
-            acodec=str(fmt.get("acodec") or "none"),
+        raw_candidates.append(
+            MediaCandidate(
+                id=secrets.token_urlsafe(12),
+                format_id=str(fmt.get("format_id") or "")[:64],
+                ext=str(fmt.get("ext") or "")[:16],
+                protocol="https",
+                url=media_url,
+                http_headers=sanitize_upstream_headers(fmt.get("http_headers")),
+                filesize=_safe_int(fmt.get("filesize") or fmt.get("filesize_approx")),
+                height=_safe_int(fmt.get("height")),
+                abr=_safe_float(fmt.get("abr")),
+                vcodec=str(fmt.get("vcodec") or "none")[:128],
+                acodec=str(fmt.get("acodec") or "none")[:128],
+            )
         )
 
-    if not candidates:
-        raise RuntimeError("Nenhum formato HTTP compatível foi encontrado.")
+    bounded = _bounded_candidates(raw_candidates)
+    candidates = {candidate.id: candidate for candidate in bounded}
 
+    if not candidates:
+        raise RuntimeError("Nenhum formato HTTPS compatível foi encontrado.")
+
+    title = str(info.get("title") or "Sem título")[:512]
     session = ResolveSession(
-        id=secrets.token_urlsafe(18),
+        id=secrets.token_urlsafe(24),
         created_at=time.time(),
-        title=str(info.get("title") or "Sem título"),
-        webpage_url=str(info.get("webpage_url") or normalized),
-        thumbnail=info.get("thumbnail") if isinstance(info.get("thumbnail"), str) else None,
+        title=title,
+        webpage_url=normalized,
+        thumbnail=_safe_thumbnail(info.get("thumbnail")),
         duration=duration,
         candidates=candidates,
     )
@@ -177,22 +320,7 @@ def resolve_media(raw_url: str) -> ResolveSession:
 
 
 def direct_eligible(candidate: MediaCandidate) -> bool:
-    """Conservador: direct-first somente para HTTPS do CDN do YouTube.
-
-    O navegador recebe um redirect efêmero. Se a mídia estiver vinculada ao IP
-    que resolveu a URL ou exigir headers não reproduzíveis pelo navegador, o
-    cliente deve usar o relay como fallback.
-    """
-
-    try:
-        parsed = urlparse(candidate.url)
-    except ValueError:
-        return False
-
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https":
-        return False
-    if host != "googlevideo.com" and not host.endswith(".googlevideo.com"):
+    if not is_allowed_media_url(candidate.url):
         return False
 
     header_names = {key.lower() for key in candidate.http_headers}
@@ -201,7 +329,9 @@ def direct_eligible(candidate: MediaCandidate) -> bool:
 
 def server_merge_eligible(video: MediaCandidate, audio: MediaCandidate) -> bool:
     return (
-        video.has_video
+        is_allowed_media_url(video.url)
+        and is_allowed_media_url(audio.url)
+        and video.has_video
         and not video.has_audio
         and video.ext.lower() == "mp4"
         and audio.has_audio
@@ -210,7 +340,10 @@ def server_merge_eligible(video: MediaCandidate, audio: MediaCandidate) -> bool:
     )
 
 
-def _candidate_payload(session: ResolveSession, candidate: MediaCandidate) -> dict[str, Any]:
+def _candidate_payload(
+    session: ResolveSession,
+    candidate: MediaCandidate,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": candidate.id,
         "format_id": candidate.format_id,
@@ -225,16 +358,29 @@ def _candidate_payload(session: ResolveSession, candidate: MediaCandidate) -> di
         "direct_eligible": direct_eligible(candidate),
     }
     if payload["direct_eligible"]:
-        payload["direct_url"] = f"/api/v1/direct/{session.id}/{candidate.id}"
+        payload["direct_url"] = (
+            f"/api/v1/direct/{session.id}/{candidate.id}"
+        )
     return payload
 
 
 def public_session(session: ResolveSession) -> dict[str, Any]:
-    formats = [_candidate_payload(session, candidate) for candidate in session.candidates.values()]
+    formats = [
+        _candidate_payload(session, candidate)
+        for candidate in session.candidates.values()
+    ]
 
     progressive = [item for item in formats if item["progressive"]]
-    video_only = [item for item in formats if item["has_video"] and not item["has_audio"]]
-    audio_only = [item for item in formats if item["has_audio"] and not item["has_video"]]
+    video_only = [
+        item
+        for item in formats
+        if item["has_video"] and not item["has_audio"]
+    ]
+    audio_only = [
+        item
+        for item in formats
+        if item["has_audio"] and not item["has_video"]
+    ]
 
     return {
         "session_id": session.id,
@@ -281,7 +427,11 @@ def _pick_video_candidate(
             ),
         )
 
-    at_or_below = [item for item in usable if (item.height or 0) <= target_height]
+    at_or_below = [
+        item
+        for item in usable
+        if (item.height or 0) <= target_height
+    ]
     if at_or_below:
         return max(
             at_or_below,
@@ -334,7 +484,11 @@ def build_download_plan(
         audio = _pick_audio_candidate(candidates)
         if audio is None:
             progressive = [item for item in candidates if item.progressive]
-            audio = max(progressive, key=lambda item: item.abr or 0.0, default=None)
+            audio = max(
+                progressive,
+                key=lambda item: item.abr or 0.0,
+                default=None,
+            )
         if audio is None:
             raise RuntimeError("Nenhuma fonte de áudio compatível foi encontrada.")
 
@@ -342,7 +496,9 @@ def build_download_plan(
         return {
             "session_id": session.id,
             "media_type": "audio",
-            "strategy": "direct-first" if source["direct_eligible"] else "relay",
+            "strategy": (
+                "direct-first" if source["direct_eligible"] else "relay"
+            ),
             "output": {
                 "container": audio.ext,
                 "conversion_required_for_mp3": audio.ext.lower() != "mp3",
@@ -354,13 +510,23 @@ def build_download_plan(
             },
             "conversion": {
                 "mp3_available": True,
-                "mp3_url": f"/api/v1/convert/audio/{session.id}/{audio.id}",
+                "mp3_url": (
+                    f"/api/v1/convert/audio/{session.id}/{audio.id}"
+                ),
             },
         }
 
     progressive = [item for item in candidates if item.progressive]
-    video_only = [item for item in candidates if item.has_video and not item.has_audio]
-    audio_only = [item for item in candidates if item.has_audio and not item.has_video]
+    video_only = [
+        item
+        for item in candidates
+        if item.has_video and not item.has_audio
+    ]
+    audio_only = [
+        item
+        for item in candidates
+        if item.has_audio and not item.has_video
+    ]
 
     progressive_pick = _pick_video_candidate(progressive, target_height)
     adaptive_video = _pick_video_candidate(video_only, target_height)
@@ -371,8 +537,6 @@ def build_download_plan(
         else ("webm", "m4a", "mp4"),
     )
 
-    # Se o formato progressivo já atende a mesma resolução (ou melhor dentro
-    # do alvo), ele é preferível: um único stream, sem merge.
     progressive_height = progressive_pick.height if progressive_pick else 0
     adaptive_height = adaptive_video.height if adaptive_video else 0
 
@@ -386,7 +550,9 @@ def build_download_plan(
             "session_id": session.id,
             "media_type": "video",
             "quality": progressive_pick.height,
-            "strategy": "direct-first" if source["direct_eligible"] else "relay",
+            "strategy": (
+                "direct-first" if source["direct_eligible"] else "relay"
+            ),
             "output": {
                 "container": progressive_pick.ext,
                 "merge_required": False,
@@ -401,13 +567,21 @@ def build_download_plan(
     if adaptive_video and adaptive_audio:
         video_source = _candidate_payload(session, adaptive_video)
         audio_source = _candidate_payload(session, adaptive_audio)
+        fallback_available = server_merge_eligible(
+            adaptive_video,
+            adaptive_audio,
+        )
         return {
             "session_id": session.id,
             "media_type": "video",
             "quality": adaptive_video.height,
             "strategy": "browser-merge",
             "output": {
-                "container": "mp4" if adaptive_video.ext.lower() == "mp4" else adaptive_video.ext,
+                "container": (
+                    "mp4"
+                    if adaptive_video.ext.lower() == "mp4"
+                    else adaptive_video.ext
+                ),
                 "merge_required": True,
             },
             "sources": {
@@ -416,10 +590,11 @@ def build_download_plan(
             },
             "fallback": {
                 "type": "server-ffmpeg",
-                "available": server_merge_eligible(adaptive_video, adaptive_audio),
+                "available": fallback_available,
                 "url": (
-                    f"/api/v1/merge/{session.id}/{adaptive_video.id}/{adaptive_audio.id}"
-                    if server_merge_eligible(adaptive_video, adaptive_audio)
+                    f"/api/v1/merge/{session.id}/"
+                    f"{adaptive_video.id}/{adaptive_audio.id}"
+                    if fallback_available
                     else None
                 ),
             },
@@ -431,7 +606,9 @@ def build_download_plan(
             "session_id": session.id,
             "media_type": "video",
             "quality": progressive_pick.height,
-            "strategy": "direct-first" if source["direct_eligible"] else "relay",
+            "strategy": (
+                "direct-first" if source["direct_eligible"] else "relay"
+            ),
             "output": {
                 "container": progressive_pick.ext,
                 "merge_required": False,
