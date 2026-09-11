@@ -4,6 +4,8 @@ from web.service import (
     build_download_plan,
     direct_eligible,
     public_session,
+    is_allowed_media_url,
+    sanitize_upstream_headers,
 )
 
 
@@ -224,3 +226,34 @@ def test_audio_plan_prefers_m4a_and_marks_mp3_conversion():
     assert plan["output"]["conversion_required_for_mp3"] is True
     assert plan["conversion"]["mp3_available"] is True
     assert plan["conversion"]["mp3_url"] == "/api/v1/convert/audio/session1/140"
+
+
+def test_media_url_allowlist_blocks_ssrf_shapes():
+    assert is_allowed_media_url(
+        "https://r1---sn.example.googlevideo.com/videoplayback?id=1"
+    ) is True
+    assert is_allowed_media_url("http://r1.googlevideo.com/video") is False
+    assert is_allowed_media_url("https://googlevideo.com.evil.test/video") is False
+    assert is_allowed_media_url("https://user:pass@googlevideo.com/video") is False
+    assert is_allowed_media_url("https://googlevideo.com:8443/video") is False
+    assert is_allowed_media_url("https://127.0.0.1/video") is False
+    assert is_allowed_media_url("https://169.254.169.254/latest/meta-data/") is False
+
+
+def test_upstream_headers_use_positive_allowlist():
+    clean = sanitize_upstream_headers(
+        {
+            "User-Agent": "safe-agent",
+            "Accept-Language": "pt-BR",
+            "Cookie": "secret=1",
+            "Authorization": "Bearer secret",
+            "Host": "internal.local",
+            "X-Forwarded-For": "127.0.0.1",
+            "X-Bad": "ok\r\nInjected: yes",
+        }
+    )
+
+    assert clean == {
+        "User-Agent": "safe-agent",
+        "Accept-Language": "pt-BR",
+    }
