@@ -6,14 +6,21 @@ Este documento descreve o primeiro deploy de **staging** do MVP web.
 
 ## Fonte
 
-No Coolify:
+No Coolify, use **Docker Compose from Git** para que as restrições de runtime do repositório sejam aplicadas:
 
 ```text
 Branch: web-mvp-phase1
-Build Pack: Dockerfile
-Dockerfile: /Dockerfile
-Porta interna: 8000
+Build Pack: Docker Compose
+Docker Compose Location: /compose.web.yml
 ```
+
+Depois do parse, configure no serviço `mediaflow` o domínio apontando para a porta interna 8000, por exemplo:
+
+```text
+https://staging.seudominio.com:8000
+```
+
+O sufixo `:8000` informa ao proxy qual porta interna usar; o visitante continua acessando HTTPS normalmente. O compose **não publica host port** e o tráfego entra pelo proxy do Coolify.
 
 A imagem inclui Python 3.12, yt-dlp + yt-dlp-ejs, Deno, FFmpeg, FastAPI/Uvicorn e a PWA com Mediabunny lazy-loaded.
 
@@ -106,7 +113,11 @@ Use:
 - 1 GiB de memória como limite inicial;
 - 2 CPUs como teto inicial;
 - no máximo 128 PIDs;
+- no máximo 1024 descritores de arquivo soft / 2048 hard;
 - filesystem somente leitura;
+- todas as Linux capabilities removidas;
+- `no-new-privileges`;
+- init mínimo para reap de processos filhos;
 - `/tmp` em tmpfs limitado;
 - sem Redis;
 - sem PostgreSQL;
@@ -119,6 +130,7 @@ Escala horizontal exige estado/limites compartilhados, por exemplo Redis ou outr
 ## Regras de rede
 
 - exponha apenas o proxy reverso à Internet;
+- o `compose.web.yml` usa apenas `expose: 8000`, não `ports:`;
 - não publique a porta 8000 diretamente no firewall da VPS;
 - não monte `/var/run/docker.sock` no container;
 - não monte diretórios do host desnecessários;
