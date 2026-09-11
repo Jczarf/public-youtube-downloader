@@ -62,11 +62,5 @@ jobs:
           node-version: "24"
       - name: Auditoria de dependências frontend
         run: |
-          npm install --package-lock-only --ignore-scripts --no-fund
+          npm ci --no-fund --no-audit
           npm audit --audit-level=high
-      - name: Exportar lock temporariamente
-        run: |
-          echo LOCK_BEGIN
-          base64 -w0 package-lock.json
-          echo
-          echo LOCK_END
