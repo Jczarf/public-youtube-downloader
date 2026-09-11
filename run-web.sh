@@ -13,13 +13,10 @@ if [[ ! -x ".venv/bin/python" ]]; then
   "$PYTHON_BIN" -m venv .venv
 fi
 
-.venv/bin/python -m pip install -r requirements-web.txt
+.venv/bin/python -m pip install --only-binary=:all: "pip==26.2.1"
+.venv/bin/python -m pip install   --only-binary=:all:   --require-hashes   -r requirements-web.lock.txt
+
 npm ci --ignore-scripts --no-fund --no-audit
 npm run build:web
 
-exec .venv/bin/python -m uvicorn web.app:app \
-  --host "$WEB_BIND_HOST" \
-  --port "${PORT:-8000}" \
-  --no-server-header \
-  --no-access-log \
-  --no-access-log
+exec .venv/bin/python -m uvicorn web.app:app   --host "$WEB_BIND_HOST"   --port "${PORT:-8000}"   --no-server-header   --no-access-log
