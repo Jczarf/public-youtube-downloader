@@ -5,7 +5,13 @@ import os
 import shutil
 from collections.abc import AsyncIterator
 
-from web.service import MediaCandidate, server_merge_eligible
+from web.runtime import ffmpeg_timeout_seconds
+from web.service import (
+    ALLOWED_UPSTREAM_HEADERS,
+    MediaCandidate,
+    is_allowed_media_url,
+    server_merge_eligible,
+)
 
 
 def _concurrency() -> int:
@@ -16,14 +22,6 @@ def _concurrency() -> int:
 
 
 FFMPEG_SEMAPHORE = asyncio.Semaphore(_concurrency())
-DROP_UPSTREAM_HEADERS = {
-    "accept-encoding",
-    "connection",
-    "content-length",
-    "host",
-    "range",
-    "transfer-encoding",
-}
 
 
 def ffmpeg_available() -> bool:
@@ -35,10 +33,8 @@ def _header_blob(candidate: MediaCandidate) -> str:
     for raw_key, raw_value in candidate.http_headers.items():
         key = str(raw_key).strip()
         value = str(raw_value).strip()
-        if not key or key.lower() in DROP_UPSTREAM_HEADERS:
+        if key.lower() not in ALLOWED_UPSTREAM_HEADERS:
             continue
-        # Defesa em profundidade: headers vieram do extractor, mas não
-        # permitimos que CR/LF criem novos argumentos/cabeçalhos.
         if "\r" in key or "\n" in key or "\r" in value or "\n" in value:
             continue
         lines.append(f"{key}: {value}\r\n")
@@ -46,7 +42,15 @@ def _header_blob(candidate: MediaCandidate) -> str:
 
 
 def _input_args(candidate: MediaCandidate) -> list[str]:
-    args: list[str] = []
+    if not is_allowed_media_url(candidate.url):
+        raise ValueError("Destino remoto não permitido.")
+
+    args: list[str] = [
+        "-protocol_whitelist",
+        "https,tls,tcp",
+        "-rw_timeout",
+        "15000000",
+    ]
     headers = _header_blob(candidate)
     if headers:
         args.extend(["-headers", headers])
@@ -54,9 +58,14 @@ def _input_args(candidate: MediaCandidate) -> list[str]:
     return args
 
 
-def merge_mp4_command(video: MediaCandidate, audio: MediaCandidate) -> list[str]:
+def merge_mp4_command(
+    video: MediaCandidate,
+    audio: MediaCandidate,
+) -> list[str]:
     if not server_merge_eligible(video, audio):
-        raise ValueError("O fallback inicial suporta somente vídeo MP4 + áudio M4A/MP4.")
+        raise ValueError(
+            "O fallback aceita somente vídeo MP4 + áudio M4A/MP4 permitidos."
+        )
 
     return [
         "ffmpeg",
@@ -82,9 +91,13 @@ def merge_mp4_command(video: MediaCandidate, audio: MediaCandidate) -> list[str]
     ]
 
 
-def audio_mp3_command(audio: MediaCandidate, bitrate: int = 192) -> list[str]:
-    if not audio.has_audio:
-        raise ValueError("O formato selecionado não possui áudio.")
+def audio_mp3_command(
+    audio: MediaCandidate,
+    bitrate: int = 192,
+) -> list[str]:
+    if not audio.has_audio or not is_allowed_media_url(audio.url):
+        raise ValueError("O formato selecionado não é permitido para áudio.")
+
     bitrate = max(64, min(int(bitrate), 320))
 
     return [
@@ -95,6 +108,8 @@ def audio_mp3_command(audio: MediaCandidate, bitrate: int = 192) -> list[str]:
         "error",
         *_input_args(audio),
         "-vn",
+        "-threads",
+        "1",
         "-c:a",
         "libmp3lame",
         "-b:a",
@@ -105,47 +120,85 @@ def audio_mp3_command(audio: MediaCandidate, bitrate: int = 192) -> list[str]:
     ]
 
 
-async def _drain_stderr(stream: asyncio.StreamReader | None) -> bytes:
+async def _drain_stderr(
+    stream: asyncio.StreamReader | None,
+) -> bytes:
     if stream is None:
         return b""
-    # Mantém o pipe drenado para FFmpeg nunca bloquear por stderr cheio.
+
     data = bytearray()
     while True:
         chunk = await stream.read(16 * 1024)
         if not chunk:
             break
-        if len(data) < 64 * 1024:
-            data.extend(chunk[: 64 * 1024 - len(data)])
+        if len(data) < 32 * 1024:
+            data.extend(chunk[: 32 * 1024 - len(data)])
     return bytes(data)
+
+
+async def _read_process(
+    process: asyncio.subprocess.Process,
+    stderr_task: asyncio.Task[bytes],
+) -> AsyncIterator[bytes]:
+    if process.stdout is None:
+        raise RuntimeError("FFmpeg não abriu o pipe de saída.")
+
+    while True:
+        chunk = await process.stdout.read(256 * 1024)
+        if not chunk:
+            break
+        yield chunk
+
+    return_code = await process.wait()
+    stderr = await stderr_task
+    if return_code != 0:
+        # Do not return raw FFmpeg stderr to clients. It can contain source
+        # URLs, tokens, or infrastructure details.
+        raise RuntimeError(f"FFmpeg encerrou com código {return_code}.")
 
 
 async def stream_command(command: list[str]) -> AsyncIterator[bytes]:
     if not ffmpeg_available():
         raise RuntimeError("FFmpeg não está instalado no servidor.")
 
+    timeout = ffmpeg_timeout_seconds()
+
     async with FFMPEG_SEMAPHORE:
         process = await asyncio.create_subprocess_exec(
             *command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env={
+                "PATH": os.environ.get("PATH", ""),
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+            },
         )
         stderr_task = asyncio.create_task(_drain_stderr(process.stderr))
 
         try:
-            if process.stdout is None:
-                raise RuntimeError("FFmpeg não abriu o pipe de saída.")
+            async def consume() -> AsyncIterator[bytes]:
+                async for chunk in _read_process(process, stderr_task):
+                    yield chunk
 
-            while True:
-                chunk = await process.stdout.read(256 * 1024)
-                if not chunk:
-                    break
-                yield chunk
-
-            return_code = await process.wait()
-            stderr = await stderr_task
-            if return_code != 0:
-                detail = stderr.decode("utf-8", errors="replace").strip()
-                raise RuntimeError(detail or f"FFmpeg encerrou com código {return_code}.")
+            if timeout:
+                deadline = asyncio.get_running_loop().time() + timeout
+                iterator = consume().__aiter__()
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise TimeoutError("FFmpeg excedeu o tempo máximo.")
+                    try:
+                        chunk = await asyncio.wait_for(
+                            iterator.__anext__(),
+                            timeout=remaining,
+                        )
+                    except StopAsyncIteration:
+                        break
+                    yield chunk
+            else:
+                async for chunk in consume():
+                    yield chunk
         finally:
             if process.returncode is None:
                 process.terminate()
@@ -154,5 +207,6 @@ async def stream_command(command: list[str]) -> AsyncIterator[bytes]:
                 except asyncio.TimeoutError:
                     process.kill()
                     await process.wait()
+
             if not stderr_task.done():
                 stderr_task.cancel()
