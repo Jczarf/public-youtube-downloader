@@ -31,6 +31,9 @@ Comece somente com:
 
 ```env
 WEB_FFMPEG_CONCURRENCY=2
+WEB_RESOLVE_CONCURRENCY=4
+WEB_RELAY_CONCURRENCY=8
+WEB_MAX_DURATION_SECONDS=7200
 ```
 
 Não coloque cookies do YouTube no primeiro teste.
@@ -54,6 +57,9 @@ Para staging:
 - 1 instância;
 - 1 processo Uvicorn;
 - `WEB_FFMPEG_CONCURRENCY=2`;
+- no máximo 4 resoluções simultâneas;
+- no máximo 8 requests de relay ativos;
+- vídeos limitados a 2 horas (`7200` s) no staging;
 - sem Redis;
 - sem PostgreSQL;
 - sem armazenamento persistente.
@@ -106,8 +112,8 @@ Essas métricas vão determinar se vale investir primeiro em processamento local
 O MVP já evita open proxy e não expõe URLs reais do CDN no JSON. Ainda faltam, antes de abrir ao público:
 
 - rate limit por IP/sessão;
-- limite de duração e tamanho estimado;
-- limite global de streams ativos;
+- limite de tamanho estimado;
+- limite global de streams já existe no processo, mas ainda falta coordenação distribuída quando houver múltiplas instâncias;
 - proteção de origem/proxy confiável;
 - Cloudflare Turnstile ou mecanismo equivalente;
 - telemetria de abuso;
