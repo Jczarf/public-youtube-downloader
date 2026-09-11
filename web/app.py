@@ -19,6 +19,7 @@ from web.ffmpeg_stream import (
     merge_mp4_command,
     stream_command,
 )
+from web.runtime import RELAY_SLOTS, RESOLVE_SLOTS, acquire_slot
 from web.service import (
     STORE,
     build_download_plan,
@@ -81,6 +82,13 @@ async def health() -> dict[str, str]:
 
 @app.post("/api/v1/resolve")
 async def resolve(payload: ResolveRequest) -> dict:
+    if not await acquire_slot(RESOLVE_SLOTS, timeout=0.1):
+        raise HTTPException(
+            status_code=503,
+            detail="Servidor ocupado resolvendo outras mídias. Tente novamente em instantes.",
+            headers={"Retry-After": "3"},
+        )
+
     try:
         session = await run_in_threadpool(resolve_media, payload.url)
         return public_session(session)
@@ -88,6 +96,8 @@ async def resolve(payload: ResolveRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Falha ao resolver mídia: {exc}") from exc
+    finally:
+        RESOLVE_SLOTS.release()
 
 
 @app.post("/api/v1/plan")
@@ -177,6 +187,13 @@ async def convert_audio(
 async def stream_media(session_id: str, candidate_id: str, request: Request) -> StreamingResponse:
     _, candidate = _session_and_candidate(session_id, candidate_id)
 
+    if not await acquire_slot(RELAY_SLOTS, timeout=0.1):
+        raise HTTPException(
+            status_code=503,
+            detail="Limite temporário de streams simultâneos atingido.",
+            headers={"Retry-After": "3"},
+        )
+
     upstream_headers = dict(candidate.http_headers)
     range_header = request.headers.get("range")
     if range_header:
@@ -189,12 +206,14 @@ async def stream_media(session_id: str, candidate_id: str, request: Request) -> 
         response = await client.send(upstream_request, stream=True)
     except Exception:
         await client.aclose()
+        RELAY_SLOTS.release()
         raise HTTPException(status_code=502, detail="Falha ao abrir o stream de origem.")
 
     if response.status_code >= 400:
         status = response.status_code
         await response.aclose()
         await client.aclose()
+        RELAY_SLOTS.release()
         raise HTTPException(status_code=502, detail=f"Origem respondeu HTTP {status}.")
 
     async def body() -> AsyncIterator[bytes]:
@@ -204,6 +223,7 @@ async def stream_media(session_id: str, candidate_id: str, request: Request) -> 
         finally:
             await response.aclose()
             await client.aclose()
+            RELAY_SLOTS.release()
 
     passthrough = {}
     for header in (
