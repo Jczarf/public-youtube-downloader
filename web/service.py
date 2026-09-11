@@ -333,10 +333,24 @@ def direct_eligible(candidate: MediaCandidate) -> bool:
     return not bool(header_names & SENSITIVE_DIRECT_HEADERS)
 
 
+def server_process_eligible(candidate: MediaCandidate) -> bool:
+    if not is_allowed_media_url(candidate.url):
+        return False
+
+    limit = max_media_bytes()
+    if not limit:
+        return True
+
+    return (
+        candidate.filesize is not None
+        and 0 < candidate.filesize <= limit
+    )
+
+
 def server_merge_eligible(video: MediaCandidate, audio: MediaCandidate) -> bool:
     return (
-        is_allowed_media_url(video.url)
-        and is_allowed_media_url(audio.url)
+        server_process_eligible(video)
+        and server_process_eligible(audio)
         and video.has_video
         and not video.has_audio
         and video.ext.lower() == "mp4"
@@ -515,9 +529,11 @@ def build_download_plan(
                 "url": source["relay_url"],
             },
             "conversion": {
-                "mp3_available": True,
+                "mp3_available": server_process_eligible(audio),
                 "mp3_url": (
                     f"/api/v1/convert/audio/{session.id}/{audio.id}"
+                    if server_process_eligible(audio)
+                    else None
                 ),
             },
         }
