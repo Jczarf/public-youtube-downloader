@@ -22,6 +22,7 @@ from web.ffmpeg_stream import (
     stream_command,
 )
 from web.runtime import (
+    PROCESS_SLOTS,
     RELAY_SLOTS,
     RESOLVE_SLOTS,
     acquire_slot,
@@ -324,11 +325,20 @@ async def merge_media(
             headers={"Retry-After": "10"},
         )
 
+    if not await acquire_slot(PROCESS_SLOTS, timeout=0.1):
+        await ACTIVE_CLIENTS.release(client, "process")
+        raise HTTPException(
+            status_code=503,
+            detail="Capacidade de processamento ocupada.",
+            headers={"Retry-After": "10"},
+        )
+
     async def merge_body() -> AsyncIterator[bytes]:
         try:
             async for chunk in stream_command(command):
                 yield chunk
         finally:
+            PROCESS_SLOTS.release()
             await ACTIVE_CLIENTS.release(client, "process")
 
     return StreamingResponse(
@@ -370,11 +380,20 @@ async def convert_audio(
             headers={"Retry-After": "10"},
         )
 
+    if not await acquire_slot(PROCESS_SLOTS, timeout=0.1):
+        await ACTIVE_CLIENTS.release(client, "process")
+        raise HTTPException(
+            status_code=503,
+            detail="Capacidade de processamento ocupada.",
+            headers={"Retry-After": "10"},
+        )
+
     async def audio_body() -> AsyncIterator[bytes]:
         try:
             async for chunk in stream_command(command):
                 yield chunk
         finally:
+            PROCESS_SLOTS.release()
             await ACTIVE_CLIENTS.release(client, "process")
 
     return StreamingResponse(
