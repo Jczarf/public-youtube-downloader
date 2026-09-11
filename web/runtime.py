@@ -80,3 +80,15 @@ MAX_CANDIDATES_PER_SESSION = env_int(
     minimum=8,
     maximum=256,
 )
+
+
+def max_media_bytes() -> int:
+    """Maximum known single-stream size. Zero disables the size cap."""
+
+    return env_int(
+        "WEB_MAX_MEDIA_BYTES",
+        1024 * 1024 * 1024,
+        minimum=10 * 1024 * 1024,
+        maximum=20 * 1024 * 1024 * 1024,
+        allow_zero=True,
+    )
