@@ -1,6 +1,5 @@
+import asyncio
 from types import SimpleNamespace
-
-import pytest
 
 from web.security import InMemoryRateLimiter, RateRule, client_ip
 
@@ -13,15 +12,17 @@ class FakeRequest:
             self.headers["x-forwarded-for"] = forwarded
 
 
-@pytest.mark.asyncio
-async def test_rate_limiter_blocks_after_limit():
-    limiter = InMemoryRateLimiter()
-    rule = RateRule("resolve", 2, 60)
+def test_rate_limiter_blocks_after_limit():
+    async def run():
+        limiter = InMemoryRateLimiter()
+        rule = RateRule("resolve", 2, 60)
 
-    assert await limiter.allow("203.0.113.10", rule) is True
-    assert await limiter.allow("203.0.113.10", rule) is True
-    assert await limiter.allow("203.0.113.10", rule) is False
-    assert await limiter.allow("203.0.113.11", rule) is True
+        assert await limiter.allow("203.0.113.10", rule) is True
+        assert await limiter.allow("203.0.113.10", rule) is True
+        assert await limiter.allow("203.0.113.10", rule) is False
+        assert await limiter.allow("203.0.113.11", rule) is True
+
+    asyncio.run(run())
 
 
 def test_forwarded_for_is_ignored_without_trusted_proxy(monkeypatch):
