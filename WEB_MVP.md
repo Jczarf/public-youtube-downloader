@@ -1,193 +1,141 @@
-# Web MVP — pipeline funcional
+# Web MVP — pipeline híbrido e baseline segura
 
-A branch adiciona uma versão web/PWA sem remover ou alterar a aplicação desktop existente.
+Esta branch adiciona a versão web/PWA sem remover a aplicação desktop.
 
-## Fluxo atual
+## Fluxo
 
 ```text
-usuário no navegador
-        ↓
+navegador
+  ↓
 POST /api/v1/resolve
-        ↓
-yt-dlp resolve formatos
-        ↓
-sessão efêmera (10 min)
-        ↓
+  ↓
+yt-dlp
+  ↓
+sessão efêmera em memória
+  ↓
 POST /api/v1/plan
-        ↓
-┌───────────────────────────────────────────┐
-│ formato progressivo                      │
-│ direct-first → relay como fallback       │
-└───────────────────────────────────────────┘
-                    ou
-┌───────────────────────────────────────────┐
-│ vídeo + áudio separados                  │
-│ merge local no navegador quando elegível │
-│ FFmpeg streaming na VPS como fallback    │
-└───────────────────────────────────────────┘
+  ↓
+progressivo ── direct-first → relay
+       ou
+adaptativo ── merge local no navegador
+                    ↓ fallback
+              FFmpeg na VPS
 ```
 
-Nenhum endpoint aceita uma URL arbitrária para proxy. As URLs reais do CDN são mantidas na sessão do servidor.
+A API não aceita uma URL arbitrária como destino de proxy. URLs de mídia usadas pelo servidor precisam passar pela allowlist HTTPS de `googlevideo.com`.
 
-## Interface
+## Executar localmente
 
-A raiz `/` serve uma PWA responsiva, pensada para celular e desktop.
-
-Ela permite:
-
-- colar um link;
-- escolher Vídeo ou MP3;
-- selecionar qualidade de vídeo;
-- visualizar thumbnail, título e duração;
-- usar automaticamente a rota planejada pelo backend;
-- unir vídeo + áudio no próprio navegador para combinações MP4/M4A de até 80 MiB estimados;
-- cair automaticamente para o FFmpeg da VPS se o processamento local falhar;
-- recorrer manualmente ao relay quando o direct-first não funcionar;
-- instalar o shell como PWA em navegadores compatíveis.
-
-O service worker armazena apenas os arquivos estáticos da interface. Rotas `/api/` e arquivos de mídia não entram no cache da PWA.
-
-## Executar
+Requer Python 3.12 e npm:
 
 ```bash
 ./run-web.sh
 ```
 
-Depois abra:
+O bind local padrão é:
 
 ```text
-http://localhost:8000/
+http://127.0.0.1:8000/
 ```
 
-Swagger:
-
-```text
-http://localhost:8000/docs
-```
-
-## API
-
-### Resolver
-
-```http
-POST /api/v1/resolve
-
-{
-  "url": "https://www.youtube.com/watch?v=..."
-}
-```
-
-### Planejar
-
-```http
-POST /api/v1/plan
-
-{
-  "session_id": "...",
-  "media_type": "video",
-  "quality": 1080
-}
-```
-
-O planejador prefere um único stream progressivo quando ele atende à qualidade. Para qualidades adaptativas, escolhe vídeo e áudio separados.
-
-### Direct-first
-
-```http
-GET /api/v1/direct/{session_id}/{candidate_id}
-```
-
-Disponível apenas para HTTPS em `googlevideo.com` e quando a fonte não exige headers sensíveis. É uma otimização oportunista; o relay continua disponível como fallback.
-
-### Relay
-
-```http
-GET /api/v1/stream/{session_id}/{candidate_id}
-Range: bytes=0-
-```
-
-Encaminha `Range` e repassa headers relevantes de resposta. O conteúdo passa pela VPS sem precisar ser salvo integralmente em disco.
-
-### Merge local no navegador
-
-Para formatos adaptativos compatíveis, a PWA usa **Mediabunny** para ler as duas rotas de relay com HTTP Range e gerar um MP4 no próprio dispositivo.
-
-O caminho local é habilitado somente quando:
-
-- o vídeo é MP4;
-- o áudio é M4A/MP4;
-- o tamanho estimado de ambas as faixas está disponível;
-- a soma estimada é de no máximo **80 MiB**.
-
-Esse limite é deliberadamente conservador porque a primeira implementação usa um buffer em memória. Se qualquer etapa falhar, a interface aciona automaticamente o endpoint de merge no servidor.
-
-### Merge MP4 no servidor
-
-```http
-GET /api/v1/merge/{session_id}/{video_id}/{audio_id}
-```
-
-Para o fallback inicial, vídeo MP4 + áudio M4A/MP4 são unidos por FFmpeg com stream copy. O resultado sai por `pipe:1` como MP4 fragmentado; não há arquivo temporário completo.
-
-### Converter áudio para MP3
-
-```http
-GET /api/v1/convert/audio/{session_id}/{candidate_id}?bitrate=192
-```
-
-Converte em streaming para MP3, entre 64 e 320 kbps.
-
-## Controle de carga
-
-Os principais limites do processo são configuráveis:
+Swagger/OpenAPI/ReDoc ficam **desabilitados por padrão**. Para depuração local consciente:
 
 ```bash
+WEB_ENABLE_DOCS=1 ./run-web.sh
+```
+
+## Rotas principais
+
+- `POST /api/v1/resolve`: resolve um link direto de vídeo do YouTube.
+- `POST /api/v1/plan`: escolhe estratégia/formato.
+- `GET /api/v1/direct/{session}/{candidate}`: tentativa direta via CDN.
+- `GET /api/v1/stream/{session}/{candidate}`: relay com Range.
+- `GET /api/v1/merge/{session}/{video}/{audio}`: fallback MP4/FFmpeg.
+- `GET /api/v1/convert/audio/{session}/{candidate}`: MP3/FFmpeg.
+- `GET /health`: somente `{"status":"ok"}`.
+
+## Merge local
+
+Para combinações MP4 + M4A/MP4 pequenas, a PWA carrega Mediabunny sob demanda e tenta unir as faixas no dispositivo.
+
+O limite local atual é de aproximadamente **80 MiB estimados**. Acima disso, ou em erro/indisponibilidade, o plano usa o fallback permitido no servidor.
+
+Mediabunny não fica no bundle inicial; o chunk pesado é carregado apenas quando necessário.
+
+## Limites padrão do servidor
+
+```env
 WEB_FFMPEG_CONCURRENCY=2
+WEB_FFMPEG_TIMEOUT_SECONDS=3600
 WEB_RESOLVE_CONCURRENCY=4
 WEB_RELAY_CONCURRENCY=8
+
+WEB_ACTIVE_RESOLVE_PER_CLIENT=1
+WEB_ACTIVE_PROCESS_PER_CLIENT=1
+WEB_ACTIVE_RELAY_PER_CLIENT=6
+
+WEB_RATE_RESOLVE_PER_MINUTE=8
+WEB_RATE_PLAN_PER_MINUTE=30
+WEB_RATE_PROCESS_PER_MINUTE=6
+WEB_RATE_RELAY_PER_MINUTE=180
+WEB_RATE_DIRECT_PER_MINUTE=60
+
 WEB_MAX_DURATION_SECONDS=7200
+WEB_MAX_MEDIA_BYTES=1073741824
+WEB_MAX_SESSIONS=256
+WEB_MAX_CANDIDATES_PER_SESSION=64
 ```
 
-- FFmpeg: padrão 2, máximo 8;
-- resolução yt-dlp: padrão 4, máximo 16;
-- relay HTTP: padrão 8, máximo 64;
-- duração: padrão 7200 segundos (2 h), máximo configurável de 24 h; valor `0` desativa esse teto.
+São defesas de aplicação, não substitutos para rate limiting/WAF no edge.
 
-O objetivo é impedir que o staging sature CPU, conexões ou banda antes de termos rate limiting por usuário/IP.
+## Segurança relevante
 
-## Segurança
+A implementação atual inclui:
 
-- somente links diretos reconhecidos do YouTube no resolver inicial;
-- sem open proxy/SSRF: nenhuma URL de origem é recebida do cliente nos endpoints de stream;
-- URLs do CDN ficam somente no servidor;
-- sessões expiram em 10 minutos;
-- direct-first restrito a `googlevideo.com`;
-- direct-first recusado com `Cookie`, `Authorization` ou `Proxy-Authorization`;
-- headers repassados ao FFmpeg têm CR/LF filtrados;
-- subprocessos FFmpeg usam `create_subprocess_exec`, sem shell;
-- concorrência de FFmpeg limitada;
-- relay suporta HTTP Range;
-- PWA não cacheia API nem mídia;
-- `pip-audit` audita o conjunto completo de dependências web.
+- canonicalização do link de entrada;
+- allowlist positiva de host/protocolo para mídia;
+- redirects HTTP manuais, limitados e revalidados;
+- HTTPX sem confiança em proxies de ambiente;
+- allowlist de headers enviados à origem;
+- limites de corpo HTTP antes de Pydantic/yt-dlp;
+- validação de Range;
+- limites de bytes, duração, sessões e candidatos;
+- rate limit e limites de operações ativas por cliente;
+- admissão fail-fast para resolução, relay e FFmpeg;
+- FFmpeg sem shell, com protocolos permitidos, timeout e ambiente mínimo;
+- Swagger/OpenAPI desligados por padrão;
+- TrustedHost;
+- CSP, anti-frame, nosniff, no-referrer e Permissions Policy;
+- bloqueio de requisições browser cross-site à API;
+- access log do Uvicorn desligado para não registrar capability IDs;
+- container não root, read-only, sem capabilities e com recursos limitados no Compose;
+- dependências Node travadas por `package-lock.json`;
+- dependências Python web travadas por `requirements-web.lock.txt` com hashes;
+- imagens base do Docker fixadas por digest;
+- `npm audit`, `pip-audit`, scanner de secrets, Trivy e CodeQL.
 
-## Dependências web
+O modelo completo, riscos residuais e orientações operacionais estão em `SECURITY.md`.
 
-A baseline de segurança atual inclui:
+## Build frontend
 
-```text
-FastAPI 0.141.1
-Starlette 1.6.0
-HTTPX 0.28.1
-Uvicorn 0.52.4
+```bash
+npm ci --ignore-scripts
+npm run build:web
 ```
 
-O pin explícito do Starlette evita resolver versões antigas com vulnerabilidades conhecidas.
+O código-fonte é `web/frontend.js`. `web/static/app.js` e `web/static/chunks/` são artefatos gerados e não ficam versionados.
 
-## Próximos passos
+## Deploy
 
-1. validar o pipeline real na VPS/Coolify;
-2. adicionar processamento/remux local no navegador;
-3. medir taxa real de direct-first vs relay vs FFmpeg;
-4. adicionar rate limit, limites de duração/tamanho e proteção antiabuso;
-5. Docker/Coolify com healthcheck;
-6. só então autenticação, planos e pagamentos.
+Para staging no Coolify, use `compose.web.yml` via **Docker Compose from Git**, não um deploy Dockerfile simplificado. Isso garante que os controles de runtime do Compose sejam aplicados.
+
+Veja `DEPLOY_WEB.md`.
+
+## Próximos gates
+
+1. todos os checks do commit final verdes;
+2. staging privado atrás de proxy/Access/VPN;
+3. validar comportamento real do YouTube/IP da VPS;
+4. medir CPU, RAM, PIDs, egress, 403/429 e taxas de fallback;
+5. adicionar proteção distribuída de edge antes de abertura pública;
+6. só depois considerar autenticação, planos e pagamentos.
