@@ -1,3 +1,15 @@
+FROM node:24-bookworm-slim AS web-build
+
+WORKDIR /build
+
+COPY package.json ./
+RUN npm install --no-package-lock --no-fund --no-audit
+
+COPY web/frontend.js ./web/frontend.js
+COPY web/static ./web/static
+RUN npm run build:web
+
+
 FROM denoland/deno:bin-2.9.6 AS deno
 
 FROM python:3.12-slim
@@ -25,6 +37,7 @@ RUN python -m pip install --upgrade pip \
 
 COPY src ./src
 COPY web ./web
+COPY --from=web-build /build/web/static ./web/static
 
 USER app
 
