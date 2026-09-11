@@ -45,21 +45,9 @@ jobs:
           python-version: "3.12"
       - name: Auditoria de dependências Python
         run: |
-          python -m pip install --upgrade pip pip-audit
+          python -m pip install --only-binary=:all: "pip==26.2.1" "pip-audit==2.10.1"
           python -m pip_audit -r requirements.txt
-          python -m pip_audit -r requirements-web.txt
-      - name: Gerar lock Python temporariamente
-        run: |
-          python -m pip install --only-binary=:all: "pip==26.2.1" "pip-tools==7.6.1"
-          python -m piptools compile \
-            --generate-hashes \
-            --resolver=backtracking \
-            --output-file /tmp/requirements-web.lock.txt \
-            requirements-web.txt
-          echo PYLOCK_BEGIN
-          base64 -w0 /tmp/requirements-web.lock.txt
-          echo
-          echo PYLOCK_END
+          python -m pip_audit -r requirements-web.lock.txt
 
   frontend-dependencies:
     runs-on: ubuntu-latest
