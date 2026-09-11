@@ -32,9 +32,9 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY requirements-web.txt ./
+COPY requirements-web.txt requirements-web.lock.txt ./
 RUN python -m pip install --no-cache-dir --only-binary=:all: "pip==26.2.1" \
-    && python -m pip install --no-cache-dir --only-binary=:all: -r requirements-web.txt \
+    && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements-web.lock.txt \
     && python -m pip check \
     && deno --version \
     && python -c "import yt_dlp, yt_dlp_ejs"
