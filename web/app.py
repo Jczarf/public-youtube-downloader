@@ -199,13 +199,21 @@ async def stream_media(session_id: str, candidate_id: str, request: Request) -> 
     if range_header:
         upstream_headers["Range"] = range_header
 
-    client = httpx.AsyncClient(follow_redirects=True, timeout=None)
-    upstream_request = client.build_request("GET", candidate.url, headers=upstream_headers)
-
+    client: httpx.AsyncClient | None = None
     try:
+        client = httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0),
+        )
+        upstream_request = client.build_request(
+            "GET",
+            candidate.url,
+            headers=upstream_headers,
+        )
         response = await client.send(upstream_request, stream=True)
     except Exception:
-        await client.aclose()
+        if client is not None:
+            await client.aclose()
         RELAY_SLOTS.release()
         raise HTTPException(status_code=502, detail="Falha ao abrir o stream de origem.")
 
@@ -237,6 +245,8 @@ async def stream_media(session_id: str, candidate_id: str, request: Request) -> 
         value = response.headers.get(header)
         if value:
             passthrough[header] = value
+
+    passthrough["Cache-Control"] = "no-store, private"
 
     content_type = passthrough.pop(
         "content-type",
