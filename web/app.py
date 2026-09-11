@@ -339,6 +339,8 @@ async def stream_media(
             detail="Destino de mídia inválido.",
         )
 
+    range_header = _safe_range_header(request)
+
     if not await acquire_slot(RELAY_SLOTS, timeout=0.1):
         raise HTTPException(
             status_code=503,
@@ -347,7 +349,6 @@ async def stream_media(
         )
 
     upstream_headers = dict(candidate.http_headers)
-    range_header = _safe_range_header(request)
     if range_header:
         upstream_headers["Range"] = range_header
 
