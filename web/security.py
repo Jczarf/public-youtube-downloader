@@ -235,3 +235,43 @@ def add_security_headers(response, *, hsts: bool) -> None:
 
     if "server" in response.headers:
         del response.headers["server"]
+
+
+class ActiveClientLimiter:
+    def __init__(self) -> None:
+        self._counts: dict[tuple[str, str], int] = {}
+        self._lock = asyncio.Lock()
+
+    async def acquire(
+        self,
+        client: str,
+        group: str,
+        limit: int,
+    ) -> bool:
+        if limit <= 0:
+            return True
+
+        key = (client, group)
+        async with self._lock:
+            current = self._counts.get(key, 0)
+            if current >= limit:
+                return False
+            self._counts[key] = current + 1
+            return True
+
+    async def release(self, client: str, group: str) -> None:
+        key = (client, group)
+        async with self._lock:
+            current = self._counts.get(key, 0)
+            if current <= 1:
+                self._counts.pop(key, None)
+            else:
+                self._counts[key] = current - 1
+
+
+ACTIVE_CLIENTS = ActiveClientLimiter()
+
+
+def active_limit(group: str, default: int) -> int:
+    env_name = f"WEB_ACTIVE_{group.upper()}_PER_CLIENT"
+    return _env_limit(env_name, default, maximum=32)
