@@ -28,8 +28,11 @@ from web.runtime import (
     max_media_bytes,
 )
 from web.security import (
+    ACTIVE_CLIENTS,
+    active_limit,
     add_security_headers,
     allowed_hosts,
+    client_ip,
     env_bool,
     rate_limit_response,
 )
@@ -193,8 +196,21 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/v1/resolve")
-async def resolve(payload: ResolveRequest) -> dict:
+async def resolve(payload: ResolveRequest, request: Request) -> dict:
+    client = client_ip(request)
+    if not await ACTIVE_CLIENTS.acquire(
+        client,
+        "resolve",
+        active_limit("resolve", 1),
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Já existe uma resolução ativa para este cliente.",
+            headers={"Retry-After": "3"},
+        )
+
     if not await acquire_slot(RESOLVE_SLOTS, timeout=0.1):
+        await ACTIVE_CLIENTS.release(client, "resolve")
         raise HTTPException(
             status_code=503,
             detail="Servidor temporariamente ocupado.",
@@ -214,6 +230,7 @@ async def resolve(payload: ResolveRequest) -> dict:
         ) from exc
     finally:
         RESOLVE_SLOTS.release()
+        await ACTIVE_CLIENTS.release(client, "resolve")
 
 
 @app.post("/api/v1/plan")
@@ -267,6 +284,7 @@ async def merge_media(
     session_id: str,
     video_id: str,
     audio_id: str,
+    request: Request,
 ) -> StreamingResponse:
     session = STORE.get(session_id)
     if session is None:
@@ -293,8 +311,28 @@ async def merge_media(
             detail="Processamento temporariamente indisponível.",
         )
 
+    command = merge_mp4_command(video, audio)
+    client = client_ip(request)
+    if not await ACTIVE_CLIENTS.acquire(
+        client,
+        "process",
+        active_limit("process", 1),
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Já existe um processamento ativo para este cliente.",
+            headers={"Retry-After": "10"},
+        )
+
+    async def merge_body() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in stream_command(command):
+                yield chunk
+        finally:
+            await ACTIVE_CLIENTS.release(client, "process")
+
     return StreamingResponse(
-        stream_command(merge_mp4_command(video, audio)),
+        merge_body(),
         media_type="video/mp4",
         headers=_download_headers(session.title, "mp4"),
     )
@@ -304,6 +342,7 @@ async def merge_media(
 async def convert_audio(
     session_id: str,
     candidate_id: str,
+    request: Request,
     bitrate: int = Query(default=192, ge=64, le=320),
 ) -> StreamingResponse:
     session, audio = _session_and_candidate(session_id, candidate_id)
@@ -318,8 +357,28 @@ async def convert_audio(
             detail="Processamento temporariamente indisponível.",
         )
 
+    command = audio_mp3_command(audio, bitrate=bitrate)
+    client = client_ip(request)
+    if not await ACTIVE_CLIENTS.acquire(
+        client,
+        "process",
+        active_limit("process", 1),
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Já existe um processamento ativo para este cliente.",
+            headers={"Retry-After": "10"},
+        )
+
+    async def audio_body() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in stream_command(command):
+                yield chunk
+        finally:
+            await ACTIVE_CLIENTS.release(client, "process")
+
     return StreamingResponse(
-        stream_command(audio_mp3_command(audio, bitrate=bitrate)),
+        audio_body(),
         media_type="audio/mpeg",
         headers=_download_headers(session.title, "mp3"),
     )
@@ -340,8 +399,21 @@ async def stream_media(
         )
 
     range_header = _safe_range_header(request)
+    client_identity = client_ip(request)
+
+    if not await ACTIVE_CLIENTS.acquire(
+        client_identity,
+        "relay",
+        active_limit("relay", 6),
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="Muitas conexões de mídia ativas para este cliente.",
+            headers={"Retry-After": "3"},
+        )
 
     if not await acquire_slot(RELAY_SLOTS, timeout=0.1):
+        await ACTIVE_CLIENTS.release(client_identity, "relay")
         raise HTTPException(
             status_code=503,
             detail="Limite temporário de streams simultâneos atingido.",
@@ -372,6 +444,7 @@ async def stream_media(
         if client is not None:
             await client.aclose()
         RELAY_SLOTS.release()
+        await ACTIVE_CLIENTS.release(client_identity, "relay")
         raise HTTPException(
             status_code=502,
             detail="Falha ao abrir o stream de origem.",
@@ -381,6 +454,7 @@ async def stream_media(
         await response.aclose()
         await client.aclose()
         RELAY_SLOTS.release()
+        await ACTIVE_CLIENTS.release(client_identity, "relay")
         raise HTTPException(
             status_code=502,
             detail="A origem recusou o stream.",
@@ -390,6 +464,7 @@ async def stream_media(
         await response.aclose()
         await client.aclose()
         RELAY_SLOTS.release()
+        await ACTIVE_CLIENTS.release(client_identity, "relay")
         raise HTTPException(
             status_code=413,
             detail="A mídia excede o limite atual do serviço.",
@@ -403,6 +478,7 @@ async def stream_media(
             await response.aclose()
             await client.aclose()
             RELAY_SLOTS.release()
+            await ACTIVE_CLIENTS.release(client_identity, "relay")
 
     passthrough: dict[str, str] = {}
     for header in (
