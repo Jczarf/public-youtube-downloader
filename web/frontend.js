@@ -1,13 +1,3 @@
-import {
-  ALL_FORMATS,
-  BufferTarget,
-  Conversion,
-  Input,
-  Mp4OutputFormat,
-  Output,
-  UrlSource,
-} from "mediabunny";
-
 const LOCAL_MERGE_MAX_BYTES = 80 * 1024 * 1024;
 const LOCAL_MERGE_STEP_SECONDS = 5;
 
@@ -195,6 +185,16 @@ function triggerServerFallback(url) {
 }
 
 async function mergeInBrowser(plan, title) {
+  const {
+    ALL_FORMATS,
+    BufferTarget,
+    Conversion,
+    Input,
+    Mp4OutputFormat,
+    Output,
+    UrlSource,
+  } = await import("mediabunny");
+
   const videoInput = new Input({
     formats: ALL_FORMATS,
     source: new UrlSource(plan.sources.video.relay_url, {
