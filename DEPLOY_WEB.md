@@ -22,7 +22,8 @@ A imagem inclui:
 - Deno;
 - FFmpeg;
 - FastAPI/Uvicorn;
-- PWA estática.
+- PWA estática;
+- bundle Mediabunny para merge local no navegador.
 
 ## Variáveis
 
@@ -71,10 +72,12 @@ Execute, nesta ordem:
 4. testar direct-first;
 5. testar o botão de modo compatível/relay;
 6. testar 1080p, que normalmente exige faixas adaptativas;
-7. testar MP3;
-8. repetir com duas operações simultâneas;
-9. observar CPU, RAM e tráfego;
-10. registrar erros HTTP 403/429 do YouTube.
+7. confirmar em um vídeo pequeno que aparece a rota de processamento no dispositivo;
+8. testar o fallback automático para FFmpeg no servidor;
+9. testar MP3;
+10. repetir com duas operações simultâneas;
+11. observar CPU, RAM e tráfego;
+12. registrar erros HTTP 403/429 do YouTube.
 
 ## Métricas mínimas a registrar
 
@@ -85,6 +88,8 @@ resoluções solicitadas
 direct-first tentado
 direct-first efetivamente útil
 relay utilizado
+merge local utilizado
+merge local falhou
 FFmpeg merge utilizado
 MP3 utilizado
 tempo de resolução
