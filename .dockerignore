@@ -1,11 +1,41 @@
 .git
 .github
 .venv
+venv
+env
+node_modules
 __pycache__
 *.py[cod]
 .pytest_cache
 .mypy_cache
 .ruff_cache
+
+# Never send local secrets/configuration into Docker build context
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials*
+secrets*
+
+# Local state and downloaded media
+*.log
+*.sqlite
+*.db
+*.part
+*.tmp
+downloads
+listas-pessoais
+*.mp3
+*.mp4
+*.webm
+*.mkv
+
+# Desktop-only and documentation
 assets
 tests
 *.md
