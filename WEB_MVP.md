@@ -22,8 +22,8 @@ POST /api/v1/plan
                     ou
 ┌───────────────────────────────────────────┐
 │ vídeo + áudio separados                  │
-│ processamento local: próxima otimização  │
-│ FFmpeg streaming na VPS: fallback atual  │
+│ merge local no navegador quando elegível │
+│ FFmpeg streaming na VPS como fallback    │
 └───────────────────────────────────────────┘
 ```
 
@@ -40,7 +40,9 @@ Ela permite:
 - selecionar qualidade de vídeo;
 - visualizar thumbnail, título e duração;
 - usar automaticamente a rota planejada pelo backend;
-- recorrer ao modo compatível quando o direct-first não funcionar;
+- unir vídeo + áudio no próprio navegador para combinações MP4/M4A de até 80 MiB estimados;
+- cair automaticamente para o FFmpeg da VPS se o processamento local falhar;
+- recorrer manualmente ao relay quando o direct-first não funcionar;
 - instalar o shell como PWA em navegadores compatíveis.
 
 O service worker armazena apenas os arquivos estáticos da interface. Rotas `/api/` e arquivos de mídia não entram no cache da PWA.
@@ -105,6 +107,19 @@ Range: bytes=0-
 ```
 
 Encaminha `Range` e repassa headers relevantes de resposta. O conteúdo passa pela VPS sem precisar ser salvo integralmente em disco.
+
+### Merge local no navegador
+
+Para formatos adaptativos compatíveis, a PWA usa **Mediabunny** para ler as duas rotas de relay com HTTP Range e gerar um MP4 no próprio dispositivo.
+
+O caminho local é habilitado somente quando:
+
+- o vídeo é MP4;
+- o áudio é M4A/MP4;
+- o tamanho estimado de ambas as faixas está disponível;
+- a soma estimada é de no máximo **80 MiB**.
+
+Esse limite é deliberadamente conservador porque a primeira implementação usa um buffer em memória. Se qualquer etapa falhar, a interface aciona automaticamente o endpoint de merge no servidor.
 
 ### Merge MP4 no servidor
 
