@@ -39,7 +39,7 @@ jobs:
           python - <<'PY'
           from web.app import app
           assert app.title == "YouTube Downloader Web API"
-          assert app.version == "0.2.0"
+          assert app.version == "0.3.0"
           PY
       - name: GUI smoke test
         run: |
