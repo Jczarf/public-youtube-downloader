@@ -1,0 +1,12 @@
+services:
+  mediaflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      WEB_FFMPEG_CONCURRENCY: "${WEB_FFMPEG_CONCURRENCY:-2}"
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+    tmpfs:
+      - /tmp:size=256m,mode=1777
