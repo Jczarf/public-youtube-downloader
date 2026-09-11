@@ -14,16 +14,6 @@ from web.service import (
 )
 
 
-def _concurrency() -> int:
-    try:
-        return max(1, min(int(os.getenv("WEB_FFMPEG_CONCURRENCY", "2")), 8))
-    except (TypeError, ValueError):
-        return 2
-
-
-FFMPEG_SEMAPHORE = asyncio.Semaphore(_concurrency())
-
-
 def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
@@ -163,50 +153,49 @@ async def stream_command(command: list[str]) -> AsyncIterator[bytes]:
 
     timeout = ffmpeg_timeout_seconds()
 
-    async with FFMPEG_SEMAPHORE:
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={
-                "PATH": os.environ.get("PATH", ""),
-                "LANG": "C.UTF-8",
-                "LC_ALL": "C.UTF-8",
-            },
-        )
-        stderr_task = asyncio.create_task(_drain_stderr(process.stderr))
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+        },
+    )
+    stderr_task = asyncio.create_task(_drain_stderr(process.stderr))
 
-        try:
-            async def consume() -> AsyncIterator[bytes]:
-                async for chunk in _read_process(process, stderr_task):
-                    yield chunk
+    try:
+        async def consume() -> AsyncIterator[bytes]:
+            async for chunk in _read_process(process, stderr_task):
+                yield chunk
 
-            if timeout:
-                deadline = asyncio.get_running_loop().time() + timeout
-                iterator = consume().__aiter__()
-                while True:
-                    remaining = deadline - asyncio.get_running_loop().time()
-                    if remaining <= 0:
-                        raise TimeoutError("FFmpeg excedeu o tempo máximo.")
-                    try:
-                        chunk = await asyncio.wait_for(
-                            iterator.__anext__(),
-                            timeout=remaining,
-                        )
-                    except StopAsyncIteration:
-                        break
-                    yield chunk
-            else:
-                async for chunk in consume():
-                    yield chunk
-        finally:
-            if process.returncode is None:
-                process.terminate()
+        if timeout:
+            deadline = asyncio.get_running_loop().time() + timeout
+            iterator = consume().__aiter__()
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError("FFmpeg excedeu o tempo máximo.")
                 try:
-                    await asyncio.wait_for(process.wait(), timeout=3)
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
+                    chunk = await asyncio.wait_for(
+                        iterator.__anext__(),
+                        timeout=remaining,
+                    )
+                except StopAsyncIteration:
+                    break
+                yield chunk
+        else:
+            async for chunk in consume():
+                yield chunk
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=3)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
 
-            if not stderr_task.done():
-                stderr_task.cancel()
+        if not stderr_task.done():
+            stderr_task.cancel()
