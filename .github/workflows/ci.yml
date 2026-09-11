@@ -41,7 +41,7 @@ jobs:
           python -m pip check
       - name: Build web frontend
         run: |
-          npm ci --no-fund --no-audit
+          npm ci --ignore-scripts --no-fund --no-audit
           npm run build:web
           test -s web/static/app.js
           find web/static/chunks -type f -name '*.js' -print -quit | grep -q .
