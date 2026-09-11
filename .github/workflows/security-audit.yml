@@ -62,5 +62,5 @@ jobs:
           node-version: "24"
       - name: Auditoria de dependências frontend
         run: |
-          npm ci --no-fund --no-audit
+          npm ci --ignore-scripts --no-fund --no-audit
           npm audit --audit-level=high
