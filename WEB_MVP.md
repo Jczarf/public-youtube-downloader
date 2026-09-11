@@ -139,13 +139,21 @@ Converte em streaming para MP3, entre 64 e 320 kbps.
 
 ## Controle de carga
 
-O número máximo de processos FFmpeg simultâneos é controlado por:
+Os principais limites do processo são configuráveis:
 
 ```bash
 WEB_FFMPEG_CONCURRENCY=2
+WEB_RESOLVE_CONCURRENCY=4
+WEB_RELAY_CONCURRENCY=8
+WEB_MAX_DURATION_SECONDS=7200
 ```
 
-O padrão é 2 e o código limita o valor a no máximo 8. Para o primeiro deploy, manter 2 é intencional.
+- FFmpeg: padrão 2, máximo 8;
+- resolução yt-dlp: padrão 4, máximo 16;
+- relay HTTP: padrão 8, máximo 64;
+- duração: padrão 7200 segundos (2 h), máximo configurável de 24 h; valor `0` desativa esse teto.
+
+O objetivo é impedir que o staging sature CPU, conexões ou banda antes de termos rate limiting por usuário/IP.
 
 ## Segurança
 
