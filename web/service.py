@@ -14,6 +14,7 @@ from web.runtime import (
     MAX_CANDIDATES_PER_SESSION,
     MAX_SESSIONS,
     max_duration_seconds,
+    max_media_bytes,
 )
 
 
@@ -283,6 +284,11 @@ def resolve_media(raw_url: str) -> ResolveSession:
         if protocol != "https":
             continue
 
+        filesize = _safe_int(fmt.get("filesize") or fmt.get("filesize_approx"))
+        size_limit = max_media_bytes()
+        if size_limit and filesize and filesize > size_limit:
+            continue
+
         raw_candidates.append(
             MediaCandidate(
                 id=secrets.token_urlsafe(12),
@@ -291,7 +297,7 @@ def resolve_media(raw_url: str) -> ResolveSession:
                 protocol="https",
                 url=media_url,
                 http_headers=sanitize_upstream_headers(fmt.get("http_headers")),
-                filesize=_safe_int(fmt.get("filesize") or fmt.get("filesize_approx")),
+                filesize=filesize,
                 height=_safe_int(fmt.get("height")),
                 abr=_safe_float(fmt.get("abr")),
                 vcodec=str(fmt.get("vcodec") or "none")[:128],
