@@ -275,3 +275,97 @@ ACTIVE_CLIENTS = ActiveClientLimiter()
 def active_limit(group: str, default: int) -> int:
     env_name = f"WEB_ACTIVE_{group.upper()}_PER_CLIENT"
     return _env_limit(env_name, default, maximum=32)
+
+
+class RequestBodyTooLarge(Exception):
+    pass
+
+
+class BodyLimitMiddleware:
+    """Limit API request bodies before JSON/Pydantic parsing."""
+
+    def __init__(self, app, max_body_bytes: int = 16 * 1024) -> None:
+        self.app = app
+        self.max_body_bytes = max(1024, max_body_bytes)
+
+    async def __call__(self, scope, receive, send) -> None:
+        if (
+            scope.get("type") != "http"
+            or not str(scope.get("path", "")).startswith("/api/")
+            or str(scope.get("method", "GET")).upper() in {"GET", "HEAD"}
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.lower(): value
+            for key, value in scope.get("headers", [])
+        }
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                if int(raw_length) > self.max_body_bytes:
+                    await self._reject(send)
+                    return
+            except ValueError:
+                await self._reject(send, status=400, detail=b'{"detail":"Content-Length invalido."}')
+                return
+
+        received = 0
+        response_started = False
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_body_bytes:
+                    raise RequestBodyTooLarge
+            return message
+
+        async def tracked_send(message):
+            nonlocal response_started
+            if message.get("type") == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracked_send)
+        except RequestBodyTooLarge:
+            if not response_started:
+                await self._reject(send)
+                return
+            raise
+
+    @staticmethod
+    async def _reject(
+        send,
+        *,
+        status: int = 413,
+        detail: bytes = b'{"detail":"Corpo da requisicao excede o limite."}',
+    ) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"cache-control", b"no-store"),
+                    (b"x-content-type-options", b"nosniff"),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": detail,
+                "more_body": False,
+            }
+        )
+
+
+def is_cross_site_browser_request(request: Request) -> bool:
+    return (
+        request.url.path.startswith("/api/")
+        and request.headers.get("sec-fetch-site", "").lower() == "cross-site"
+    )
