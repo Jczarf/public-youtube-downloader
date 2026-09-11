@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Literal
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from web.service import STORE, public_session, resolve_media
+from web.service import (
+    STORE,
+    build_download_plan,
+    direct_eligible,
+    public_session,
+    resolve_media,
+)
 
 
 app = FastAPI(
     title="YouTube Downloader Web API",
-    version="0.1.0",
-    description="MVP da camada web: resolve formatos e retransmite mídia autorizada pela sessão.",
+    version="0.2.0",
+    description=(
+        "MVP da camada web: resolve formatos, cria um plano de download "
+        "e retransmite mídia autorizada pela sessão."
+    ),
 )
 
 
@@ -22,9 +32,27 @@ class ResolveRequest(BaseModel):
     url: str = Field(min_length=10, max_length=2048)
 
 
+class PlanRequest(BaseModel):
+    session_id: str = Field(min_length=8, max_length=128)
+    media_type: Literal["video", "audio"] = "video"
+    quality: int | None = Field(default=None, ge=144, le=4320)
+
+
+def _session_and_candidate(session_id: str, candidate_id: str):
+    session = STORE.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Sessão expirada ou inexistente.")
+
+    candidate = session.candidates.get(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Formato inexistente.")
+
+    return session, candidate
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "version": app.version}
 
 
 @app.post("/api/v1/resolve")
@@ -38,15 +66,49 @@ async def resolve(payload: ResolveRequest) -> dict:
         raise HTTPException(status_code=502, detail=f"Falha ao resolver mídia: {exc}") from exc
 
 
-@app.get("/api/v1/stream/{session_id}/{candidate_id}")
-async def stream_media(session_id: str, candidate_id: str, request: Request) -> StreamingResponse:
-    session = STORE.get(session_id)
+@app.post("/api/v1/plan")
+async def plan(payload: PlanRequest) -> dict:
+    session = STORE.get(payload.session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Sessão expirada ou inexistente.")
 
-    candidate = session.candidates.get(candidate_id)
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="Formato inexistente.")
+    try:
+        return build_download_plan(
+            session,
+            media_type=payload.media_type,
+            target_height=payload.quality,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/direct/{session_id}/{candidate_id}")
+async def direct_media(session_id: str, candidate_id: str) -> RedirectResponse:
+    _, candidate = _session_and_candidate(session_id, candidate_id)
+    if not direct_eligible(candidate):
+        raise HTTPException(
+            status_code=409,
+            detail="Este formato não é elegível para tentativa direta; use o relay.",
+        )
+
+    # Direct-first é oportunista. O redirect faz o dispositivo tentar buscar
+    # diretamente no CDN. Se a URL estiver vinculada ao IP da VPS ou exigir
+    # contexto adicional, o frontend usa o relay indicado no plano.
+    return RedirectResponse(
+        candidate.url,
+        status_code=307,
+        headers={
+            "Cache-Control": "no-store, private",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
+
+
+@app.get("/api/v1/stream/{session_id}/{candidate_id}")
+async def stream_media(session_id: str, candidate_id: str, request: Request) -> StreamingResponse:
+    _, candidate = _session_and_candidate(session_id, candidate_id)
 
     upstream_headers = dict(candidate.http_headers)
     range_header = request.headers.get("range")
