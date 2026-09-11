@@ -11,6 +11,7 @@ from web.service import (
     MediaCandidate,
     is_allowed_media_url,
     server_merge_eligible,
+    server_process_eligible,
 )
 
 
@@ -85,7 +86,7 @@ def audio_mp3_command(
     audio: MediaCandidate,
     bitrate: int = 192,
 ) -> list[str]:
-    if not audio.has_audio or not is_allowed_media_url(audio.url):
+    if not audio.has_audio or not server_process_eligible(audio):
         raise ValueError("O formato selecionado não é permitido para áudio.")
 
     bitrate = max(64, min(int(bitrate), 320))
