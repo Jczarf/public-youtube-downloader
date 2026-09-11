@@ -66,3 +66,17 @@ async def acquire_slot(
         return True
     except TimeoutError:
         return False
+
+
+MAX_SESSIONS = env_int(
+    "WEB_MAX_SESSIONS",
+    256,
+    minimum=16,
+    maximum=4096,
+)
+MAX_CANDIDATES_PER_SESSION = env_int(
+    "WEB_MAX_CANDIDATES_PER_SESSION",
+    64,
+    minimum=8,
+    maximum=256,
+)
