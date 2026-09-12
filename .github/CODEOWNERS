@@ -1,0 +1,14 @@
+# Security-sensitive surfaces. Enforce CODEOWNERS reviews with a branch ruleset.
+/.github/ @Jczarf
+/Dockerfile @Jczarf
+/compose.web.yml @Jczarf
+/requirements*.txt @Jczarf
+/package.json @Jczarf
+/package-lock.json @Jczarf
+/web/app.py @Jczarf
+/web/security.py @Jczarf
+/web/runtime.py @Jczarf
+/web/stream_guard.py @Jczarf
+/web/service.py @Jczarf
+/web/ffmpeg_stream.py @Jczarf
+/SECURITY.md @Jczarf
