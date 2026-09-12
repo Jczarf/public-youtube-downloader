@@ -25,7 +25,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=deno /deno /usr/local/bin/deno
 
 RUN apt-get update \
-    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --no-create-home --uid 10001 app
