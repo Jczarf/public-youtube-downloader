@@ -18,7 +18,7 @@ def test_non_stream_path_is_not_wrapped():
     async def send(message):
         events.append(message)
 
-    middleware = StreamingSendTimeoutMiddleware(app, timeout_seconds=5)
+    middleware = StreamingSendTimeoutMiddleware(app, timeout_seconds=0.05)
     asyncio.run(
         middleware(
             {"type": "http", "path": "/health"},
@@ -40,9 +40,9 @@ def test_stream_path_aborts_when_client_stops_reading():
 
     async def stalled_send(message):
         if message.get("type") == "http.response.body" and message.get("body"):
-            await asyncio.sleep(10)
+            await asyncio.sleep(1)
 
-    middleware = StreamingSendTimeoutMiddleware(app, timeout_seconds=5)
+    middleware = StreamingSendTimeoutMiddleware(app, timeout_seconds=0.05)
 
     async def run():
         with pytest.raises(TimeoutError):
