@@ -69,7 +69,7 @@ jobs:
             config /src \
             --severity CRITICAL,HIGH \
             --exit-code 1 \
-            --no-progress
+            --quiet
 
       - name: Start container
         run: |
