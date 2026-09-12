@@ -17,9 +17,11 @@ class StreamingSendTimeoutMiddleware:
         "/api/v1/convert/",
     )
 
-    def __init__(self, app, timeout_seconds: int = 30) -> None:
+    def __init__(self, app, timeout_seconds: float = 30) -> None:
         self.app = app
-        self.timeout_seconds = max(5, min(int(timeout_seconds), 120))
+        # Runtime configuration clamps this to >=5 seconds. A smaller lower
+        # bound here keeps the middleware independently testable.
+        self.timeout_seconds = max(0.05, min(float(timeout_seconds), 120.0))
 
     async def __call__(self, scope, receive, send) -> None:
         if scope.get("type") != "http":
