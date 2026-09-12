@@ -27,6 +27,8 @@ from web.runtime import (
     RESOLVE_SLOTS,
     acquire_slot,
     max_media_bytes,
+    stream_send_timeout_seconds,
+    upstream_read_timeout_seconds,
 )
 from web.security import (
     ACTIVE_CLIENTS,
@@ -49,6 +51,7 @@ from web.service import (
     server_merge_eligible,
     server_process_eligible,
 )
+from web.stream_guard import StreamingSendTimeoutMiddleware
 
 
 LOGGER = logging.getLogger("mediaflow.web")
@@ -77,6 +80,10 @@ app.add_middleware(
     www_redirect=False,
 )
 app.add_middleware(BodyLimitMiddleware, max_body_bytes=16 * 1024)
+app.add_middleware(
+    StreamingSendTimeoutMiddleware,
+    timeout_seconds=stream_send_timeout_seconds(),
+)
 
 
 @app.middleware("http")
@@ -466,7 +473,7 @@ async def stream_media(
             trust_env=False,
             timeout=httpx.Timeout(
                 connect=10.0,
-                read=None,
+                read=float(upstream_read_timeout_seconds()),
                 write=10.0,
                 pool=10.0,
             ),
