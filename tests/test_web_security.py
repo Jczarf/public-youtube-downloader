@@ -1,7 +1,13 @@
 import asyncio
 from types import SimpleNamespace
 
-from web.security import InMemoryRateLimiter, RateRule, client_ip
+from web.security import (
+    InMemoryRateLimiter,
+    RateRule,
+    allowed_hosts,
+    client_ip,
+    trusted_proxy_networks,
+)
 
 
 class FakeRequest:
@@ -40,3 +46,25 @@ def test_forwarded_chain_only_used_from_trusted_proxy(monkeypatch):
     )
 
     assert client_ip(request) == "203.0.113.77"
+
+
+def test_default_route_cannot_be_trusted_as_proxy(monkeypatch):
+    monkeypatch.setenv("WEB_TRUSTED_PROXY_CIDRS", "0.0.0.0/0,::/0")
+
+    assert trusted_proxy_networks() == ()
+
+    request = FakeRequest("198.51.100.10", "203.0.113.77")
+    assert client_ip(request) == "198.51.100.10"
+
+
+def test_allowed_hosts_rejects_universal_wildcard(monkeypatch):
+    monkeypatch.setenv("WEB_ALLOWED_HOSTS", "*")
+
+    assert "*" not in allowed_hosts()
+    assert "localhost" in allowed_hosts()
+
+
+def test_allowed_hosts_keeps_explicit_domain(monkeypatch):
+    monkeypatch.setenv("WEB_ALLOWED_HOSTS", "media.example.com,localhost")
+
+    assert allowed_hosts() == ["media.example.com", "localhost"]
