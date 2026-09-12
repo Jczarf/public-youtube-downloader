@@ -1,29 +1,23 @@
-const CACHE = "mediaflow-shell-v1";
-const SHELL = ["/", "/styles.css", "/app.js", "/manifest.webmanifest"];
+// Transitional cleanup worker.
+//
+// The downloader does not need an offline cache, and retaining executable
+// application code in a persistent Service Worker increases rollback and
+// supply-chain blast radius. Existing installations may still have the old
+// worker registered, so this shim clears its cache and unregisters itself.
 
-self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
-  );
-  self.clients.claim();
-});
-
-self.addEventListener("fetch", event => {
-  const url = new URL(event.request.url);
-  if (event.request.method !== "GET" || url.pathname.startsWith("/api/")) return;
-
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter(key => key.startsWith("mediaflow-"))
+        .map(key => caches.delete(key)),
+    );
+    await self.registration.unregister();
+    await self.clients.claim();
+  })());
 });
