@@ -26,19 +26,29 @@ def env_csv(name: str, default: Iterable[str] = ()) -> list[str]:
 
 
 def allowed_hosts() -> list[str]:
-    return env_csv(
+    values = env_csv(
         "WEB_ALLOWED_HOSTS",
         default=("localhost", "127.0.0.1", "[::1]"),
     )
+    # A wildcard makes TrustedHostMiddleware ineffective. Fail closed instead
+    # of letting one environment-variable typo silently disable the control.
+    safe = [value for value in values if value != "*"]
+    return safe or ["localhost", "127.0.0.1", "[::1]"]
 
 
 def trusted_proxy_networks() -> tuple[ipaddress._BaseNetwork, ...]:
     networks: list[ipaddress._BaseNetwork] = []
     for value in env_csv("WEB_TRUSTED_PROXY_CIDRS"):
         try:
-            networks.append(ipaddress.ip_network(value, strict=False))
+            network = ipaddress.ip_network(value, strict=False)
         except ValueError:
             continue
+
+        # Trusting the whole Internet turns X-Forwarded-For into an attacker-
+        # controlled rate-limit identity. Never accept default routes here.
+        if network.prefixlen == 0:
+            continue
+        networks.append(network)
     return tuple(networks)
 
 
