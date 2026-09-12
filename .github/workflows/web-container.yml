@@ -22,6 +22,8 @@ on:
       - "compose.web.yml"
       - "requirements-web.txt"
       - "requirements-web.lock.txt"
+      - "package.json"
+      - "package-lock.json"
       - "web/**"
       - "src/resolver.py"
       - ".github/workflows/web-container.yml"
