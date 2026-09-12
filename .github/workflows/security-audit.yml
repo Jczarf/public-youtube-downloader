@@ -2,8 +2,14 @@ name: Security Audit
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -39,5 +45,22 @@ jobs:
           python-version: "3.12"
       - name: Auditoria de dependências Python
         run: |
-          python -m pip install --upgrade pip pip-audit
+          python -m pip install --only-binary=:all: "pip==26.2.1" "pip-audit==2.10.1"
           python -m pip_audit -r requirements.txt
+          python -m pip_audit -r requirements-web.lock.txt
+
+  frontend-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "24"
+      - name: Auditoria de dependências frontend
+        run: |
+          npm ci --ignore-scripts --no-fund --no-audit
+          npm audit --audit-level=high

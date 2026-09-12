@@ -13,6 +13,11 @@ dist/
 venv/
 env/
 
+# Node / frontend build
+node_modules/
+web/static/app.js
+web/static/chunks/
+
 # IDE / SO
 .vscode/
 .idea/

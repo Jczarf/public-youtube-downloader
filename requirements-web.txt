@@ -1,0 +1,5 @@
+yt-dlp[default]==2026.8.19
+fastapi==0.141.1
+starlette==1.6.0
+httpx==0.28.1
+uvicorn[standard]==0.52.4

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0b0f">
+  <meta name="description" content="Baixe e processe suas mídias com uma interface rápida e simples.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+  <title>MediaFlow</title>
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="MediaFlow">
+      <span class="brand-mark">M</span>
+      <span>MediaFlow</span>
+    </a>
+    <div class="status-pill"><span></span> Web beta</div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="eyebrow">DOWNLOAD • CONVERSÃO • SEM INSTALAÇÃO</div>
+      <h1>Sua mídia pronta.<br><span>Direto no navegador.</span></h1>
+      <p class="lead">Cole um link, escolha o formato e nós selecionamos automaticamente a melhor rota para o seu dispositivo.</p>
+
+      <form id="download-form" class="download-card">
+        <label class="url-box">
+          <span class="url-icon" aria-hidden="true">↗</span>
+          <input
+            id="media-url"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            placeholder="Cole o link do vídeo aqui"
+            required
+          >
+          <button id="paste-button" type="button" class="paste-button">Colar</button>
+        </label>
+
+        <div class="options-row">
+          <div class="segmented" role="group" aria-label="Formato">
+            <button type="button" class="segment active" data-format="video">Vídeo</button>
+            <button type="button" class="segment" data-format="audio">MP3</button>
+          </div>
+
+          <label class="quality-wrap" id="quality-wrap">
+            <span>Qualidade</span>
+            <select id="quality">
+              <option value="">Melhor disponível</option>
+              <option value="1080">1080p</option>
+              <option value="720">720p</option>
+              <option value="480">480p</option>
+              <option value="360">360p</option>
+            </select>
+          </label>
+        </div>
+
+        <button id="submit-button" class="primary-button" type="submit">
+          <span id="submit-label">Preparar download</span>
+          <span class="button-arrow">→</span>
+        </button>
+
+        <p class="legal-note">Use apenas com conteúdos que você tem direito de acessar e baixar.</p>
+      </form>
+    </section>
+
+    <section id="result" class="result-card hidden" aria-live="polite">
+      <div class="media-preview">
+        <div class="thumb-shell">
+          <img id="thumbnail" alt="" class="thumbnail">
+          <span id="duration" class="duration"></span>
+        </div>
+        <div class="media-copy">
+          <span id="result-badge" class="result-badge">Pronto</span>
+          <h2 id="media-title">Mídia</h2>
+          <p id="route-label" class="route-label"></p>
+        </div>
+      </div>
+
+      <div class="download-actions">
+        <a id="download-primary" class="primary-button action-link" href="#">Baixar arquivo <span>↓</span></a>
+        <a id="download-fallback" class="secondary-button hidden" href="#">Usar modo compatível</a>
+      </div>
+    </section>
+
+    <section id="status-card" class="status-card hidden" aria-live="polite">
+      <div class="spinner"></div>
+      <div>
+        <strong id="status-title">Preparando mídia</strong>
+        <p id="status-message">Analisando formatos disponíveis…</p>
+      </div>
+    </section>
+
+    <section id="error-card" class="error-card hidden" role="alert">
+      <div class="error-icon">!</div>
+      <div>
+        <strong>Não foi possível preparar este download</strong>
+        <p id="error-message"></p>
+      </div>
+    </section>
+
+    <section class="feature-grid">
+      <article>
+        <span class="feature-number">01</span>
+        <h3>Rota inteligente</h3>
+        <p>O servidor escolhe entre download direto, relay ou processamento para evitar trabalho desnecessário.</p>
+      </article>
+      <article>
+        <span class="feature-number">02</span>
+        <h3>Feito para celular</h3>
+        <p>Interface responsiva e instalável como PWA, sem exigir aplicativo desktop.</p>
+      </article>
+      <article>
+        <span class="feature-number">03</span>
+        <h3>Sem biblioteca na nuvem</h3>
+        <p>O MVP transmite o arquivo sob demanda e não mantém uma coleção permanente das mídias processadas.</p>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <span>MediaFlow beta</span>
+    <span>Processamento temporário • Privacidade por padrão</span>
+  </footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
