@@ -17,6 +17,7 @@ FROM python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    DEBIAN_FRONTEND=noninteractive \
     HOME=/tmp/app-home \
     XDG_CACHE_HOME=/tmp/.cache \
     DENO_DIR=/tmp/deno \
@@ -35,6 +36,9 @@ COPY requirements-web.txt requirements-web.lock.txt ./
 RUN python -m pip install --no-cache-dir --only-binary=:all: "pip==26.2.1" \
     && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements-web.lock.txt \
     && python -m pip check \
+    && python -m pip uninstall -y setuptools msgpack \
+    && python -m pip check \
+    && python -c "import importlib.util; assert importlib.util.find_spec('setuptools') is None; assert importlib.util.find_spec('msgpack') is None" \
     && deno --version \
     && python -c "import yt_dlp, yt_dlp_ejs"
 
