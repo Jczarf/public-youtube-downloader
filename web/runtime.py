@@ -111,3 +111,25 @@ def ffmpeg_timeout_seconds() -> int:
         maximum=4 * 60 * 60,
         allow_zero=True,
     )
+
+
+def upstream_read_timeout_seconds() -> int:
+    """Maximum idle time while waiting for bytes from the media origin."""
+
+    return env_int(
+        "WEB_UPSTREAM_READ_TIMEOUT_SECONDS",
+        30,
+        minimum=5,
+        maximum=120,
+    )
+
+
+def stream_send_timeout_seconds() -> int:
+    """Maximum time one response chunk may block on a slow client."""
+
+    return env_int(
+        "WEB_STREAM_SEND_TIMEOUT_SECONDS",
+        30,
+        minimum=5,
+        maximum=120,
+    )
