@@ -62,6 +62,8 @@ O limite local atual é de aproximadamente **80 MiB estimados**. Acima disso, ou
 
 Mediabunny não fica no bundle inicial; o chunk pesado é carregado apenas quando necessário.
 
+O projeto não mantém Service Worker/offline cache. Isso é intencional: um downloader online não precisa de persistência de JavaScript via Service Worker, reduzindo a superfície de rollback e supply chain no navegador.
+
 ## Limites padrão do servidor
 
 ```env
@@ -69,6 +71,8 @@ WEB_FFMPEG_CONCURRENCY=2
 WEB_FFMPEG_TIMEOUT_SECONDS=3600
 WEB_RESOLVE_CONCURRENCY=4
 WEB_RELAY_CONCURRENCY=8
+WEB_UPSTREAM_READ_TIMEOUT_SECONDS=30
+WEB_STREAM_SEND_TIMEOUT_SECONDS=30
 
 WEB_ACTIVE_RESOLVE_PER_CLIENT=1
 WEB_ACTIVE_PROCESS_PER_CLIENT=1
@@ -96,6 +100,8 @@ A implementação atual inclui:
 - allowlist positiva de host/protocolo para mídia;
 - redirects HTTP manuais, limitados e revalidados;
 - HTTPX sem confiança em proxies de ambiente;
+- timeout de leitura da origem para impedir conexões upstream presas;
+- timeout de envio de chunks para impedir slow-read segurando slots de relay/FFmpeg;
 - allowlist de headers enviados à origem;
 - limites de corpo HTTP antes de Pydantic/yt-dlp;
 - validação de Range;
@@ -104,7 +110,8 @@ A implementação atual inclui:
 - admissão fail-fast para resolução, relay e FFmpeg;
 - FFmpeg sem shell, com protocolos permitidos, timeout e ambiente mínimo;
 - Swagger/OpenAPI desligados por padrão;
-- TrustedHost;
+- TrustedHost com wildcard universal recusado;
+- X-Forwarded-For ignorado fora de proxies explicitamente confiáveis e default routes de proxy recusadas;
 - CSP, anti-frame, nosniff, no-referrer e Permissions Policy;
 - bloqueio de requisições browser cross-site à API;
 - access log do Uvicorn desligado para não registrar capability IDs;
@@ -112,9 +119,11 @@ A implementação atual inclui:
 - dependências Node travadas por `package-lock.json`;
 - dependências Python web travadas por `requirements-web.lock.txt` com hashes;
 - imagens base do Docker fixadas por digest;
-- `npm audit`, `pip-audit`, scanner de secrets, Trivy e CodeQL.
+- `npm audit`, `pip-audit`, scanner de secrets, Trivy e CodeQL;
+- Dependabot para Python, npm, GitHub Actions e Docker;
+- CODEOWNERS para superfícies de segurança/deploy.
 
-O modelo completo, riscos residuais e orientações operacionais estão em `SECURITY.md`.
+O modelo completo e os riscos residuais estão em `SECURITY.md`. A revisão adversarial desta fase e as lições de incidentes recentes estão em `SECURITY_REVIEW_2026-09.md`.
 
 ## Build frontend
 
@@ -134,8 +143,9 @@ Veja `DEPLOY_WEB.md`.
 ## Próximos gates
 
 1. todos os checks do commit final verdes;
-2. staging privado atrás de proxy/Access/VPN;
-3. validar comportamento real do YouTube/IP da VPS;
-4. medir CPU, RAM, PIDs, egress, 403/429 e taxas de fallback;
-5. adicionar proteção distribuída de edge antes de abertura pública;
-6. só depois considerar autenticação, planos e pagamentos.
+2. criar um ruleset da `main` exigindo PR, checks e revisão CODEOWNERS;
+3. staging privado atrás de proxy/Access/VPN;
+4. validar comportamento real do YouTube/IP da VPS;
+5. medir CPU, RAM, PIDs, egress, 403/429 e taxas de fallback;
+6. adicionar proteção distribuída de edge antes de abertura pública;
+7. só depois considerar autenticação, planos e pagamentos.
